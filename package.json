@@ -1,0 +1,12 @@
+{
+  "name": "social-autopub",
+  "private": true,
+  "packageManager": "pnpm@9.15.0",
+  "scripts": {
+    "dev:api": "pnpm --filter api start:dev",
+    "dev:console": "pnpm --filter console dev",
+    "build": "pnpm -r build",
+    "db:generate": "pnpm --filter api prisma generate",
+    "db:migrate": "pnpm --filter api prisma migrate deploy"
+  }
+}

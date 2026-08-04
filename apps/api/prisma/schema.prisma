@@ -1,0 +1,140 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// 控制台登录用户（bcrypt 密码哈希；role 先存库，权限细分后置）
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String
+  passwordHash String
+  role         String   @default("operator") // admin | operator
+  createdAt    DateTime @default(now())
+}
+
+// Notion 数据源注册表：20 张表各一行，新增语言只加配置
+model SourceDatabase {
+  id               String    @id @default(cuid())
+  notionDatabaseId String    @unique
+  language         String // en / ja / ar ...
+  tableType        String // 库内两张表的业务区分
+  enabled          Boolean   @default(true)
+  lastPolledAt     DateTime?
+}
+
+enum ContentStatus {
+  PENDING // 已入库，待生成
+  GENERATING
+  REVIEW // 待人工审核
+  APPROVED
+  PUBLISHING
+  PUBLISHED
+  FAILED
+  REJECTED
+  SUPERSEDED // 同一来源内容出现新版本，旧任务自动作废
+}
+
+// 统一内容表：所有来源（notion / http / 未来渠道）归一于此
+model ContentItem {
+  id              String        @id @default(cuid())
+  source          String // notion | http
+  externalId      String // Notion page id 或调用方自带 id
+  contentHash     String // 幂等：内容变更才视为新任务
+  language        String
+  contentType     String // news | education | review | exposure
+  title           String
+  body            String
+  media           Json          @default("[]")
+  targetPlatforms String[] // 空数组 = 按路由矩阵默认规则
+  publishAt       DateTime? // 空 = 立即
+  status          ContentStatus @default(PENDING)
+  rawPayload      Json?
+  generations     Generation[]
+  jobs            PublishJob[]
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@unique([source, externalId, contentHash])
+  @@index([status])
+}
+
+// LLM 生成结果：每条内容 × 每个平台一行，审核工作台的编辑对象
+model Generation {
+  id              String         @id @default(cuid())
+  contentItemId   String
+  contentItem     ContentItem    @relation(fields: [contentItemId], references: [id], onDelete: Cascade)
+  promptVersionId String?
+  promptVersion   PromptVersion? @relation(fields: [promptVersionId], references: [id])
+  platform        String // x | instagram | facebook
+  content         String
+  media           Json           @default("[]")
+  settings        Json? // Postiz 平台 settings 透传
+  createdAt       DateTime       @default(now())
+
+  @@unique([contentItemId, platform])
+  @@index([promptVersionId])
+}
+
+// Prompt 版本不可变；修改时新增版本，通过 active 指针发布或回滚
+model PromptVersion {
+  id                 String       @id @default(cuid())
+  version            Int          @unique @default(autoincrement())
+  systemPrompt       String
+  generationTemplate String
+  revisionTemplate   String
+  platformRules      Json
+  typeTones          Json
+  changeNote         String?
+  active             Boolean      @default(false)
+  activatedAt        DateTime?
+  createdAt          DateTime     @default(now())
+  generations        Generation[]
+
+  @@index([active])
+  @@index([createdAt])
+}
+
+// 账号 = Postiz integration 的本地镜像（定时同步），凭据全在 Postiz 侧
+model Account {
+  id                  String        @id @default(cuid())
+  platform            String
+  name                String
+  postizIntegrationId String        @unique
+  status              String        @default("active") // active | disconnected
+  lastSyncedAt        DateTime?
+  rules               RoutingRule[]
+}
+
+// 路由矩阵：语言 × 内容类型 × 平台 → 账号（多行命中即多账号发布，priority 容灾）
+model RoutingRule {
+  id          String  @id @default(cuid())
+  language    String
+  contentType String // 具体类型或 "*" 通配
+  platform    String
+  accountId   String
+  account     Account @relation(fields: [accountId], references: [id])
+  priority    Int     @default(0)
+  enabled     Boolean @default(true)
+
+  @@index([language, contentType, platform])
+}
+
+// 发布子任务：一条内容按路由拆出的每次实际发布
+model PublishJob {
+  id                  String      @id @default(cuid())
+  contentItemId       String
+  contentItem         ContentItem @relation(fields: [contentItemId], references: [id], onDelete: Cascade)
+  platform            String
+  postizIntegrationId String
+  postizPostId        String?
+  status              String      @default("queued") // queued | sent | failed
+  error               String?
+  scheduledAt         DateTime?
+  createdAt           DateTime    @default(now())
+  updatedAt           DateTime    @updatedAt
+}
