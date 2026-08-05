@@ -9,6 +9,7 @@ import {
 } from "@nestjs/common";
 import { z } from "zod";
 import { AdminKeyGuard } from "../common/admin-key.guard";
+import { AdminRoleGuard } from "../common/admin-role.guard";
 import { PromptConfigService } from "../generation/prompt-config.service";
 
 const rulesSchema = z.record(z.string().min(1), z.string());
@@ -30,7 +31,7 @@ const REQUIRED_REVISION_TOKENS = [
 ];
 
 @Controller("prompts")
-@UseGuards(AdminKeyGuard)
+@UseGuards(AdminKeyGuard, AdminRoleGuard)
 export class PromptsController {
   constructor(private readonly prompts: PromptConfigService) {}
 

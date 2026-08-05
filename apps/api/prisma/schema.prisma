@@ -7,14 +7,29 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// 控制台登录用户（bcrypt 密码哈希；role 先存库，权限细分后置）
+// 控制台登录用户（bcrypt 密码哈希；role: admin 全权 / operator 按账号授权）
 model User {
-  id           String   @id @default(cuid())
-  email        String   @unique
-  name         String
-  passwordHash String
-  role         String   @default("operator") // admin | operator
-  createdAt    DateTime @default(now())
+  id            String        @id @default(cuid())
+  email         String        @unique
+  name          String
+  passwordHash  String
+  role          String        @default("operator") // admin | operator
+  createdAt     DateTime      @default(now())
+  accountLinks  UserAccount[]
+  ownedAccounts Account[]     @relation("AccountOwner")
+}
+
+// 用户 ↔ 账号授权关系：关联即可见，动作权限按位控制
+model UserAccount {
+  id         String  @id @default(cuid())
+  userId     String
+  user       User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accountId  String
+  account    Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  canEdit    Boolean @default(true) // 编辑生成文案/图片
+  canPublish Boolean @default(true) // 通过发布/重试
+  canReview  Boolean @default(true) // 驳回/审核
+  @@unique([userId, accountId])
 }
 
 // Notion 数据源注册表：20 张表各一行，新增语言只加配置
@@ -105,9 +120,14 @@ model Account {
   platform            String
   name                String
   postizIntegrationId String        @unique
+  market              String? // 所属市场/语言区（与路由矩阵 language 同语义）
+  ownerId             String? // 负责人
+  owner               User?         @relation("AccountOwner", fields: [ownerId], references: [id])
+  note                String?
   status              String        @default("active") // active | disconnected
   lastSyncedAt        DateTime?
   rules               RoutingRule[]
+  userLinks           UserAccount[]
 }
 
 // 路由矩阵：语言 × 内容类型 × 平台 → 账号（多行命中即多账号发布，priority 容灾）

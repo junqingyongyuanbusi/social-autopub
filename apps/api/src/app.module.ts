@@ -13,6 +13,7 @@ import { ContentModule } from './content/content.module';
 import { PostizModule } from './postiz/postiz.module';
 import { AdminModule } from './admin/admin.module';
 import { AuthModule } from './auth/auth.module';
+import { CommonModule } from './common/common.module';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { AuthModule } from './auth/auth.module';
       connection: { url: process.env.REDIS_URL },
     }),
     PrismaModule,
+    CommonModule,
     PostizModule,
     IngestModule,
     NotionModule,

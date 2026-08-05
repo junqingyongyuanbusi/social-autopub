@@ -1,6 +1,7 @@
 import { BadRequestException, Body, Controller, Delete, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
 import { z } from 'zod';
 import { AdminKeyGuard } from '../common/admin-key.guard';
+import { AdminRoleGuard } from '../common/admin-role.guard';
 import { PrismaService } from '../prisma/prisma.service';
 
 const ruleSchema = z.object({
@@ -12,9 +13,9 @@ const ruleSchema = z.object({
   enabled: z.boolean().default(true),
 });
 
-// 路由矩阵管理：language × contentType × platform → 账号
+// 路由矩阵管理：language × contentType × platform → 账号（仅 admin）
 @Controller('routing')
-@UseGuards(AdminKeyGuard)
+@UseGuards(AdminKeyGuard, AdminRoleGuard)
 export class RoutingController {
   constructor(private readonly prisma: PrismaService) {}
 

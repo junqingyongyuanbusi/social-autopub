@@ -2,6 +2,7 @@ import { BadRequestException, Body, Controller, Delete, Get, NotFoundException, 
 import { hash } from 'bcryptjs';
 import { z } from 'zod';
 import { AdminKeyGuard } from '../common/admin-key.guard';
+import { AdminRoleGuard } from '../common/admin-role.guard';
 import { PrismaService } from '../prisma/prisma.service';
 
 const createSchema = z.object({
@@ -14,9 +15,9 @@ const updateSchema = createSchema.partial().omit({ email: true });
 
 const PUBLIC_FIELDS = { id: true, email: true, name: true, role: true, createdAt: true } as const;
 
-// 控制台用户管理（不返回 passwordHash）
+// 控制台用户管理（仅 admin，不返回 passwordHash）
 @Controller('users')
-@UseGuards(AdminKeyGuard)
+@UseGuards(AdminKeyGuard, AdminRoleGuard)
 export class UsersController {
   constructor(private readonly prisma: PrismaService) {}
 

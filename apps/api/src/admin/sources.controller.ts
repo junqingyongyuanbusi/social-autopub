@@ -1,6 +1,7 @@
 import { BadRequestException, Body, Controller, Delete, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
 import { z } from 'zod';
 import { AdminKeyGuard } from '../common/admin-key.guard';
+import { AdminRoleGuard } from '../common/admin-role.guard';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotionPoller } from '../sources/notion/notion.poller';
 
@@ -11,9 +12,9 @@ const sourceSchema = z.object({
   enabled: z.boolean().default(true),
 });
 
-// Notion 数据源注册表管理（设置页数据源，避免直接操作数据库）
+// Notion 数据源注册表管理（仅 admin）
 @Controller('sources')
-@UseGuards(AdminKeyGuard)
+@UseGuards(AdminKeyGuard, AdminRoleGuard)
 export class SourcesController {
   constructor(
     private readonly prisma: PrismaService,

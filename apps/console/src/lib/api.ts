@@ -38,13 +38,26 @@ export interface ContentItem {
   jobs: PublishJobRow[];
 }
 
+export interface UserAccountLink {
+  userId: string;
+  canEdit: boolean;
+  canPublish: boolean;
+  canReview: boolean;
+  user?: { id: string; name: string };
+}
+
 export interface Account {
   id: string;
   platform: string;
   name: string;
   postizIntegrationId: string;
+  market?: string | null;
+  ownerId?: string | null;
+  owner?: { id: string; name: string } | null;
+  note?: string | null;
   status: string;
   lastSyncedAt?: string | null;
+  userLinks?: UserAccountLink[];
 }
 
 export interface RoutingRule {
@@ -108,14 +121,24 @@ export interface Stats {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  // 服务端组件直连 API：附加管理密钥与当前用户身份头（动态 import 避免打进客户端包）
+  const serverHeaders: Record<string, string> = {};
+  if (isServer) {
+    if (process.env.ADMIN_API_KEY) serverHeaders["x-admin-key"] = process.env.ADMIN_API_KEY;
+    const { auth } = await import("@/auth");
+    const session = await auth();
+    const user = session?.user as { id?: string; role?: string } | undefined;
+    if (user) {
+      serverHeaders["x-user-id"] = user.id ?? "";
+      serverHeaders["x-user-role"] = user.role ?? "operator";
+    }
+  }
   const res = await fetch(`${API}${path}`, {
     cache: "no-store",
     ...init,
     headers: {
       "Content-Type": "application/json",
-      ...(isServer && process.env.ADMIN_API_KEY
-        ? { "x-admin-key": process.env.ADMIN_API_KEY }
-        : {}),
+      ...serverHeaders,
       ...init?.headers,
     },
   });
@@ -157,5 +180,7 @@ export const postAction = (path: string, body?: object) =>
   });
 export const patchAction = (path: string, body: object) =>
   request<unknown>(path, { method: "PATCH", body: JSON.stringify(body) });
+export const putAction = (path: string, body: object) =>
+  request<unknown>(path, { method: "PUT", body: JSON.stringify(body) });
 export const deleteAction = (path: string) =>
   request<unknown>(path, { method: "DELETE" });
