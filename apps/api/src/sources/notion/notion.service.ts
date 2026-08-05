@@ -11,7 +11,6 @@ import { IngestPayload } from "../../ingest/ingest.schema";
 interface DbSchema {
   title: string;
   sent?: string; // social_media_sent checkbox
-  publishAt?: string;
   type?: string;
   summary?: string;
 }
@@ -48,8 +47,6 @@ export class NotionService {
       if (prop.type === "title") schema.title = name;
       if (prop.type === "checkbox" && includesAny(name, PROP_MATCHERS.sent))
         schema.sent = name;
-      if (prop.type === "date" && includesAny(name, PROP_MATCHERS.publishAt))
-        schema.publishAt = name;
       if (prop.type === "rich_text" && includesAny(name, PROP_MATCHERS.type))
         schema.type = name;
       if (prop.type === "rich_text" && includesAny(name, PROP_MATCHERS.summary))
@@ -130,9 +127,7 @@ export class NotionService {
         title,
       media: media.slice(0, 1), // 暂定只取 Notion 正文首图作配图
       target_platforms: [], // 表内无平台字段，全部按路由矩阵默认
-      publish_at: schema.publishAt
-        ? (props[schema.publishAt]?.date?.start ?? undefined)
-        : undefined,
+      publish_at: undefined, // Notion 勾选 social_media_sent 后始终立即发布
     };
   }
 

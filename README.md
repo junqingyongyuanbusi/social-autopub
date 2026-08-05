@@ -26,8 +26,8 @@ apps/console   Next.js 运营控制台：内容队列 / 审核工作台 / 发布
 
 ## Notion 表字段约定
 
-`social_media_sent`(Checkbox，勾选即触发) · `内容类型`(Rich text: 新闻/教育/测评/曝光，可空按表类型兜底) ·
-`定时时间`(Date，空=立即) · `摘要`(Rich text，正文块为空时兜底)。系统只读取 Notion，不回写状态、结果或链接。
+`social_media_sent`(Checkbox，勾选即立即发布) · `内容类型`(Rich text: 新闻/教育/测评/曝光，可空按表类型兜底) ·
+`摘要`(Rich text，正文块为空时兜底)。Notion 日期字段不会参与调度；系统只读取 Notion，不回写状态、结果或链接。
 字段名调整只需改 `apps/api/src/sources/notion/notion.constants.ts`。
 
 ## 端到端验证（staging）

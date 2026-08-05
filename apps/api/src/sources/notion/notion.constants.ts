@@ -1,8 +1,7 @@
 // Notion 字段适配规则：各语言库字段命名不完全一致（有的带双语后缀、有的纯中文），
 // 按关键字模糊匹配实际字段名，规则只在这里维护
 export const PROP_MATCHERS = {
-  sent: ["social_media_sent"], // checkbox：唯一触发条件
-  publishAt: ["定时时间", "scheduled time"],
+  sent: ["social_media_sent"], // checkbox：唯一触发条件，勾选后立即发布
   type: ["文章类型", "内容类型"],
   summary: ["摘要", "summary"],
 } as const;
