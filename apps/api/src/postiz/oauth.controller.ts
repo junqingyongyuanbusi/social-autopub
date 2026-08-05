@@ -1,9 +1,9 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
-import { BadRequestException, Body, Controller, Post, UnauthorizedException, UseGuards } from '@nestjs/common';
-import { Logger } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Logger, Post, Query, UnauthorizedException, UseGuards } from '@nestjs/common';
 import { z } from 'zod';
 import { AdminKeyGuard } from '../common/admin-key.guard';
-import { AdminRoleGuard } from '../common/admin-role.guard';
+import { CurrentUser, RequestUser } from '../common/current-user';
+import { PrismaService } from '../prisma/prisma.service';
 import { AccountSyncService } from './account-sync.service';
 
 const startSchema = z.object({ provider: z.enum(['x', 'instagram', 'facebook']) });
@@ -25,17 +25,20 @@ function verifyJwt(token: string, secret: string): Record<string, unknown> {
   return JSON.parse(Buffer.from(p, 'base64url').toString());
 }
 
-// 白标 OAuth 授权流：控制台发起 → 平台授权 → Postiz 完成连接 → webhook 通知本服务 → 跳回控制台
+// 白标 OAuth 授权流：任何登录用户可发起绑定；授权完成后新账号自动授权给发起人。
+// 发起人身份通过我方签名的 binder token 随 webhookUrl 往返，防伪造
 @Controller('postiz-oauth')
 export class PostizOauthController {
   private readonly logger = new Logger(PostizOauthController.name);
 
-  constructor(private readonly sync: AccountSyncService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly sync: AccountSyncService,
+  ) {}
 
-  // 生成平台授权链接（仅 admin 发起绑定）
   @Post('start')
-  @UseGuards(AdminKeyGuard, AdminRoleGuard)
-  async start(@Body() body: unknown) {
+  @UseGuards(AdminKeyGuard)
+  async start(@CurrentUser() user: RequestUser, @Body() body: unknown) {
     const parsed = startSchema.safeParse(body);
     if (!parsed.success) throw new BadRequestException(parsed.error.flatten());
 
@@ -48,12 +51,15 @@ export class PostizOauthController {
       ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`
       : `http://localhost:${process.env.PORT ?? 3000}`;
 
+    // 发起人随 webhook 回传（服务级直调无用户身份时不绑定个人）
+    const binder = user.id ? `?b=${signJwt({ uid: user.id }, secret)}` : '';
+
     const token = signJwt(
       {
         redirectUrl: `${consoleUrl}/accounts?connected=1`,
         apiKey: process.env.POSTIZ_API_KEY,
         provider: parsed.data.provider,
-        webhookUrl: `${selfUrl}/v1/postiz-oauth/webhook`,
+        webhookUrl: `${selfUrl}/v1/postiz-oauth/webhook${binder}`,
       },
       secret,
     );
@@ -71,9 +77,10 @@ export class PostizOauthController {
     return { url };
   }
 
-  // Postiz 授权完成回调（公网无守卫路径，靠 JWT 验签 + apiKey 匹配鉴权）
+  // Postiz 授权完成回调（公网无守卫路径，靠 JWT 验签 + apiKey 匹配鉴权）。
+  // 同步前后 diff 出本次新增账号，自动授权给发起人并设为负责人
   @Post('webhook')
-  async webhook(@Body() body: { params?: string }) {
+  async webhook(@Body() body: { params?: string }, @Query('b') binderToken?: string) {
     const secret = process.env.POSTIZ_JWT_SECRET;
     if (!secret || !body?.params) throw new UnauthorizedException();
     let payload: Record<string, unknown>;
@@ -84,8 +91,39 @@ export class PostizOauthController {
     }
     if (payload.apiKey !== process.env.POSTIZ_API_KEY) throw new UnauthorizedException();
 
-    this.logger.log('postiz oauth webhook received, syncing accounts');
+    let binderId = '';
+    if (binderToken) {
+      try {
+        binderId = String(verifyJwt(binderToken, secret).uid ?? '');
+      } catch {
+        this.logger.warn('binder token invalid, skip personal grant');
+      }
+    }
+
+    const before = new Set(
+      (await this.prisma.account.findMany({ select: { id: true } })).map((a) => a.id),
+    );
     await this.sync.sync().catch((e) => this.logger.error(`sync after oauth failed: ${e.message}`));
-    return { ok: true };
+    const after = await this.prisma.account.findMany({ select: { id: true, name: true } });
+    const created = after.filter((a) => !before.has(a.id));
+
+    if (binderId && created.length) {
+      const binderExists = await this.prisma.user.findUnique({ where: { id: binderId } });
+      if (binderExists) {
+        for (const account of created) {
+          await this.prisma.userAccount.upsert({
+            where: { userId_accountId: { userId: binderId, accountId: account.id } },
+            create: { userId: binderId, accountId: account.id },
+            update: {},
+          });
+          await this.prisma.account.update({
+            where: { id: account.id },
+            data: { ownerId: binderId },
+          });
+        }
+        this.logger.log(`granted ${created.length} new account(s) to binder ${binderExists.email}`);
+      }
+    }
+    return { ok: true, newAccounts: created.length };
   }
 }

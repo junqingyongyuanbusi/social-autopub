@@ -31,17 +31,19 @@ export default function AccountsPage() {
 
   useEffect(load, [load]);
 
-  // OAuth 授权完成跳回（?connected=1）：自动同步并提示完善台账
+  // OAuth 授权完成跳回（?connected=1）：webhook 已在服务端完成同步与归属，这里只刷新列表
   useEffect(() => {
     if (typeof window === 'undefined') return;
     if (new URLSearchParams(window.location.search).get('connected') === '1') {
       window.history.replaceState(null, '', '/accounts');
-      setNotice('账号授权完成！列表已自动同步，请为新账号「编辑台账」设置市场与授权用户。');
-      postAction('/v1/accounts/sync')
-        .then((updated) => setAccounts(updated as Account[]))
-        .catch(() => load());
+      setNotice(
+        isAdmin
+          ? '账号授权完成！可为新账号「编辑台账」设置市场与授权用户。'
+          : '账号授权完成！该账号已归属于你，市场归属请联系管理员设置。',
+      );
+      load();
     }
-  }, [load]);
+  }, [load, isAdmin]);
 
   // 发起白标 OAuth：拿 Postiz 授权链接后整页跳转，授权完自动回本页
   const bindNew = async () => {
@@ -97,24 +99,24 @@ export default function AccountsPage() {
     <div>
       <div className="mb-4 flex items-center justify-between">
         <h1 className="text-xl font-semibold">账号健康</h1>
-        {isAdmin && (
-          <div className="flex items-center gap-2">
-            <select
-              value={provider}
-              onChange={(e) => setProvider(e.target.value)}
-              className="rounded-md border border-border px-2.5 py-1.5 text-sm"
-            >
-              <option value="x">X</option>
-              <option value="instagram">Instagram</option>
-              <option value="facebook">Facebook</option>
-            </select>
-            <button
-              onClick={bindNew}
-              disabled={binding}
-              className="rounded-md bg-accent px-3.5 py-1.5 text-sm font-medium text-accent-foreground hover:opacity-90 disabled:opacity-50"
-            >
-              {binding ? '跳转授权中…' : '绑定新账号'}
-            </button>
+        <div className="flex items-center gap-2">
+          <select
+            value={provider}
+            onChange={(e) => setProvider(e.target.value)}
+            className="rounded-md border border-border px-2.5 py-1.5 text-sm"
+          >
+            <option value="x">X</option>
+            <option value="instagram">Instagram</option>
+            <option value="facebook">Facebook</option>
+          </select>
+          <button
+            onClick={bindNew}
+            disabled={binding}
+            className="rounded-md bg-accent px-3.5 py-1.5 text-sm font-medium text-accent-foreground hover:opacity-90 disabled:opacity-50"
+          >
+            {binding ? '跳转授权中…' : '绑定新账号'}
+          </button>
+          {isAdmin && (
             <button
               onClick={syncNow}
               disabled={syncing}
@@ -122,8 +124,8 @@ export default function AccountsPage() {
             >
               {syncing ? '同步中…' : '立即同步'}
             </button>
-          </div>
-        )}
+          )}
+        </div>
       </div>
       {notice && <p className="mb-3 rounded-md bg-success/10 px-3 py-2 text-sm text-success">{notice}</p>}
       {error && <p className="mb-3 text-sm text-destructive">{error}</p>}
