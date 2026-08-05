@@ -25,6 +25,9 @@ export class LlmClient {
   ): Promise<string> {
     const base =
       process.env.OPENROUTER_BASE_URL ?? "https://openrouter.ai/api/v1";
+    const reasoningMaxTokens = Number(
+      process.env.OPENROUTER_REASONING_MAX_TOKENS ?? 1000,
+    );
     const res = await fetch(`${base}/chat/completions`, {
       method: "POST",
       headers: {
@@ -33,8 +36,21 @@ export class LlmClient {
       },
       body: JSON.stringify({
         model: process.env.GENERATION_MODEL ?? "anthropic/claude-sonnet-4.5",
-        // 此端点强制启用推理输出，max_tokens 需覆盖推理+正文，否则 content 为空
         max_tokens: maxTokens,
+        reasoning: { max_tokens: reasoningMaxTokens, exclude: true },
+        response_format: {
+          type: "json_schema",
+          json_schema: {
+            name: "social_post",
+            strict: true,
+            schema: {
+              type: "object",
+              properties: { content: { type: "string" } },
+              required: ["content"],
+              additionalProperties: false,
+            },
+          },
+        },
         messages: [
           ...(systemPrompt ? [{ role: "system", content: systemPrompt }] : []),
           { role: "user", content: prompt },
