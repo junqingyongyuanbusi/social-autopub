@@ -4,8 +4,6 @@ import { useCallback, useEffect, useState } from 'react';
 import { useSession } from 'next-auth/react';
 import { Account, ConsoleUser, fetchAccounts, fetchUsers, patchAction, postAction, putAction } from '@/lib/api';
 
-const POSTIZ_URL = process.env.NEXT_PUBLIC_POSTIZ_URL ?? '#';
-
 // 账号台账：全员可见（operator 仅见被分配账号）；市场/负责人/用户分配仅 admin 可编辑
 export default function AccountsPage() {
   const { data: session } = useSession();
@@ -17,6 +15,9 @@ export default function AccountsPage() {
   const [form, setForm] = useState({ market: '', ownerId: '', note: '' });
   const [assigned, setAssigned] = useState<Set<string>>(new Set());
   const [syncing, setSyncing] = useState(false);
+  const [binding, setBinding] = useState(false);
+  const [provider, setProvider] = useState('x');
+  const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
 
   const load = useCallback(() => {
@@ -29,6 +30,31 @@ export default function AccountsPage() {
   }, []);
 
   useEffect(load, [load]);
+
+  // OAuth 授权完成跳回（?connected=1）：自动同步并提示完善台账
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (new URLSearchParams(window.location.search).get('connected') === '1') {
+      window.history.replaceState(null, '', '/accounts');
+      setNotice('账号授权完成！列表已自动同步，请为新账号「编辑台账」设置市场与授权用户。');
+      postAction('/v1/accounts/sync')
+        .then((updated) => setAccounts(updated as Account[]))
+        .catch(() => load());
+    }
+  }, [load]);
+
+  // 发起白标 OAuth：拿 Postiz 授权链接后整页跳转，授权完自动回本页
+  const bindNew = async () => {
+    setBinding(true);
+    setError('');
+    try {
+      const { url } = (await postAction('/v1/postiz-oauth/start', { provider })) as { url: string };
+      window.location.href = url;
+    } catch {
+      setError('生成授权链接失败，请确认 POSTIZ_JWT_SECRET 配置');
+      setBinding(false);
+    }
+  };
 
   const syncNow = async () => {
     setSyncing(true);
@@ -72,7 +98,23 @@ export default function AccountsPage() {
       <div className="mb-4 flex items-center justify-between">
         <h1 className="text-xl font-semibold">账号健康</h1>
         {isAdmin && (
-          <div className="flex gap-2">
+          <div className="flex items-center gap-2">
+            <select
+              value={provider}
+              onChange={(e) => setProvider(e.target.value)}
+              className="rounded-md border border-border px-2.5 py-1.5 text-sm"
+            >
+              <option value="x">X</option>
+              <option value="instagram">Instagram</option>
+              <option value="facebook">Facebook</option>
+            </select>
+            <button
+              onClick={bindNew}
+              disabled={binding}
+              className="rounded-md bg-accent px-3.5 py-1.5 text-sm font-medium text-accent-foreground hover:opacity-90 disabled:opacity-50"
+            >
+              {binding ? '跳转授权中…' : '绑定新账号'}
+            </button>
             <button
               onClick={syncNow}
               disabled={syncing}
@@ -80,23 +122,16 @@ export default function AccountsPage() {
             >
               {syncing ? '同步中…' : '立即同步'}
             </button>
-            <a
-              href={POSTIZ_URL}
-              target="_blank"
-              rel="noreferrer"
-              className="rounded-md bg-primary px-3.5 py-1.5 text-sm font-medium text-primary-foreground hover:opacity-90"
-            >
-              去 Postiz 连接账号
-            </a>
           </div>
         )}
       </div>
+      {notice && <p className="mb-3 rounded-md bg-success/10 px-3 py-2 text-sm text-success">{notice}</p>}
       {error && <p className="mb-3 text-sm text-destructive">{error}</p>}
 
       {accounts.length === 0 ? (
         <div className="rounded-lg border border-border bg-card p-10 text-center text-sm text-muted-foreground">
           {isAdmin
-            ? '还没有账号。请先在 Postiz 完成社媒账号 OAuth 授权，然后点「立即同步」。'
+            ? '还没有账号。点击右上角「绑定新账号」完成社媒授权。'
             : '你还没有被分配任何账号，请联系管理员在账号台账中为你授权。'}
         </div>
       ) : (
