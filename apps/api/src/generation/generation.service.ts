@@ -5,6 +5,7 @@ import { PrismaService } from "../prisma/prisma.service";
 import { PublishService } from "../publish/publish.service";
 import { RoutingService } from "../publish/routing.service";
 import { LlmClient } from "./llm.client";
+import { outputLanguageFor } from "./output-language";
 import { PromptConfigService } from "./prompt-config.service";
 import {
   buildGenerationPrompt,
@@ -107,9 +108,14 @@ export class GenerationService {
     },
     promptConfig: PromptConfig,
   ): Promise<string> {
+    const outputLanguage = outputLanguageFor(item.language);
     let content = this.parse(
       await this.llm.complete(
-        buildGenerationPrompt(promptConfig, { platform, ...item }),
+        buildGenerationPrompt(promptConfig, {
+          ...item,
+          platform,
+          language: outputLanguage,
+        }),
         promptConfig.systemPrompt,
       ),
     );
@@ -126,7 +132,7 @@ export class GenerationService {
             platform,
             content,
             problems,
-            language: item.language,
+            language: outputLanguage,
           }),
           promptConfig.systemPrompt,
         ),
