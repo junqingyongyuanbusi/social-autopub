@@ -88,6 +88,14 @@ export interface ConsoleUser {
   createdAt: string;
 }
 
+export interface InstagramPreview {
+  dataUrl: string;
+  width: number;
+  height: number;
+  originalWidth: number | null;
+  originalHeight: number | null;
+}
+
 export interface PromptConfig {
   id: string | null;
   version: number;
@@ -124,7 +132,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   // 服务端组件直连 API：附加管理密钥与当前用户身份头（动态 import 避免打进客户端包）
   const serverHeaders: Record<string, string> = {};
   if (isServer) {
-    if (process.env.ADMIN_API_KEY) serverHeaders["x-admin-key"] = process.env.ADMIN_API_KEY;
+    if (process.env.ADMIN_API_KEY)
+      serverHeaders["x-admin-key"] = process.env.ADMIN_API_KEY;
     const { auth } = await import("@/auth");
     const session = await auth();
     const user = session?.user as { id?: string; role?: string } | undefined;
@@ -172,6 +181,11 @@ export const fetchStats = () => request<Stats>("/v1/stats");
 export const fetchUsers = () => request<ConsoleUser[]>("/v1/users");
 export const fetchPrompts = () =>
   request<PromptVersionsResponse>("/v1/prompts");
+export const previewInstagramImage = (url: string) =>
+  request<InstagramPreview>("/v1/media/instagram-preview", {
+    method: "POST",
+    body: JSON.stringify({ url }),
+  });
 
 export const postAction = (path: string, body?: object) =>
   request<unknown>(path, {
