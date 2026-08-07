@@ -13,3 +13,6 @@ dist/
 *.p12
 *.pfx
 .DS_Store
+
+# spec 工作流脚手架：仅本地使用，不入库/不推送
+.spec-workflow/
