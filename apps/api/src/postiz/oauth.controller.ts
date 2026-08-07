@@ -47,9 +47,13 @@ export class PostizOauthController {
 
     const apiBase = (process.env.POSTIZ_API_URL ?? '').replace(/\/public\/v1\/?$/, '');
     const consoleUrl = (process.env.CONSOLE_URL ?? '').split(',')[0];
-    const selfUrl = process.env.RAILWAY_PUBLIC_DOMAIN
-      ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`
-      : `http://localhost:${process.env.PORT ?? 3000}`;
+    // 本服务公网回拨地址：Docker/自托管用 PUBLIC_API_URL；兼容 Railway 旧变量，最后保底 localhost
+    const selfUrl = (
+      process.env.PUBLIC_API_URL ||
+      (process.env.RAILWAY_PUBLIC_DOMAIN
+        ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`
+        : `http://localhost:${process.env.PORT ?? 3000}`)
+    ).replace(/\/+$/, '');
 
     // 发起人随 webhook 回传（服务级直调无用户身份时不绑定个人）
     const binder = user.id ? `?b=${signJwt({ uid: user.id }, secret)}` : '';

@@ -6,6 +6,7 @@ import { PublishJobRow, fetchJobs, postAction } from '@/lib/api';
 const PLATFORM_LABEL: Record<string, string> = { x: 'X', instagram: 'Instagram', facebook: 'Facebook' };
 const STATUS_LABEL: Record<string, { label: string; className: string }> = {
   queued: { label: '队列中', className: 'bg-info/10 text-info' },
+  publishing: { label: '发布中', className: 'bg-warning/10 text-warning' },
   sent: { label: '已提交', className: 'bg-success/10 text-success' },
   failed: { label: '失败', className: 'bg-destructive/10 text-destructive' },
 };

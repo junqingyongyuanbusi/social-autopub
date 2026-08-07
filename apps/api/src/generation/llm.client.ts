@@ -8,6 +8,9 @@ export class LlmClient {
     process.env.LLM_PROVIDER ??
     (process.env.OPENROUTER_API_KEY ? "openrouter" : "anthropic");
 
+  // 外部 http 统一超时，防止 job 占住 worker 无限挂起
+  private static readonly FETCH_TIMEOUT_MS = 120_000;
+
   async complete(
     prompt: string,
     systemPrompt = "",
@@ -34,6 +37,7 @@ export class LlmClient {
         Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
         "Content-Type": "application/json",
       },
+      signal: AbortSignal.timeout(LlmClient.FETCH_TIMEOUT_MS),
       body: JSON.stringify({
         model: process.env.GENERATION_MODEL ?? "anthropic/claude-sonnet-4.5",
         max_tokens: maxTokens,
@@ -90,6 +94,7 @@ export class LlmClient {
         "anthropic-version": "2023-06-01",
         "Content-Type": "application/json",
       },
+      signal: AbortSignal.timeout(LlmClient.FETCH_TIMEOUT_MS),
       body: JSON.stringify({
         model: process.env.GENERATION_MODEL ?? "claude-sonnet-5",
         max_tokens: maxTokens,

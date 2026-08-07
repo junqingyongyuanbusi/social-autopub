@@ -1,0 +1,112 @@
+# social-autopub 自托管生产编排
+# 用法：
+#   1) 复制本文件旁生成 .env（参考仓库根 .env.example），填好所有 ${...} 引用的变量
+#   2) docker compose up -d --build
+#   3) 前置反向代理：把 api / console 的公共域名打到对应容器端口（api=3000, console=3001）
+# 注意：api 的 PUBLIC_API_URL 必须是公网可回拨、且能被 Postiz 访问到的地址（OAuth webhook 用）
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: social
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me-now}
+      POSTGRES_DB: social_autopub
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U social -d social_autopub"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:8-alpine
+    restart: unless-stopped
+    # 开启 AOF 持久化：配合任务补偿逻辑，尽量降低队列任务丢失
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      DATABASE_URL: postgresql://social:${POSTGRES_PASSWORD:-change-me-now}@postgres:5432/social_autopub
+      REDIS_URL: redis://redis:6379
+      NOTION_TOKEN: ${NOTION_TOKEN}
+      LLM_PROVIDER: ${LLM_PROVIDER:-openrouter}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
+      GENERATION_MODEL: ${GENERATION_MODEL:-anthropic/claude-sonnet-4.5}
+      OPENROUTER_REASONING_MAX_TOKENS: ${OPENROUTER_REASONING_MAX_TOKENS:-1000}
+      POSTIZ_API_URL: ${POSTIZ_API_URL}
+      POSTIZ_API_KEY: ${POSTIZ_API_KEY}
+      POSTIZ_JWT_SECRET: ${POSTIZ_JWT_SECRET}
+      PUBLIC_API_URL: ${PUBLIC_API_URL}
+      INGEST_API_KEYS: ${INGEST_API_KEYS}
+      ADMIN_API_KEY: ${ADMIN_API_KEY}
+      ADMIN_EMAIL: ${ADMIN_EMAIL}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      DRY_RUN: ${DRY_RUN:-true}
+      AUTO_PUBLISH: ${AUTO_PUBLISH:-false}
+      CONSOLE_URL: ${CONSOLE_URL:-http://localhost:3001}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # 只绑宿主回环口，供宿主 Nginx/Caddy 反代访问；不要改成 0.0.0.0 直接暴露公网
+    ports:
+      - "127.0.0.1:${API_PORT:-3000}:3000"
+    # 日志走 stdout，交给 docker 日志驱动采集
+
+  console:
+    build:
+      context: .
+      dockerfile: apps/console/Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3000}
+        NEXT_PUBLIC_POSTIZ_URL: ${NEXT_PUBLIC_POSTIZ_URL}
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: "3001"
+      API_INTERNAL_URL: http://api:3000
+      ADMIN_API_KEY: ${ADMIN_API_KEY}
+      AUTH_SECRET: ${AUTH_SECRET}
+      AUTH_TRUST_HOST: "true"
+    depends_on:
+      - api
+    # 只绑宿主回环口，供宿主反代访问，勿直接 0.0.0.0 暴露公网
+    ports:
+      - "127.0.0.1:${CONSOLE_PORT:-3001}:3001"
+
+  # 可选：若宿主没有 nginx/caddy，可用这个容器反代对外（需开放 80/443，并在 api/console 上再加
+  # environment: AUTH_TRUST_HOST: "true" 已够，Caddy 会设置 X-Forwarded-* 头）：
+  # caddy:
+  #   image: caddy:2-alpine
+  #   restart: unless-stopped
+  #   ports:
+  #     - "80:80"
+  #     - "443:443"
+  #   volumes:
+  #     - ./Caddyfile:/etc/caddy/Caddyfile:ro
+  #     - caddydata:/data
+  #   depends_on: [api, console]
+  #   # Caddyfile 示例：
+  #   #   api.example.com { reverse_proxy api:3000 }
+  #   #   console.example.com { reverse_proxy console:3001 }
+
+volumes:
+  pgdata:
+  redisdata:
+  # caddydata:

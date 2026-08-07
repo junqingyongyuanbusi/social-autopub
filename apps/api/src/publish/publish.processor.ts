@@ -18,11 +18,18 @@ export class PublishProcessor extends WorkerHost {
   }
 
   async process(job: Job<PublishJobData>) {
+    // 原子领取：只在待处理状态（queued/failed）时抢占为 publishing，
+    // 防止「补偿重入队 / 手动重试 / 失败重投」叠加时同一子任务并发执行 createPost 而重复发布
+    const claimed = await this.prisma.publishJob.updateMany({
+      where: { id: job.data.publishJobId, status: { in: ["queued", "failed"] } },
+      data: { status: "publishing", error: null },
+    });
+    if (!claimed.count) return; // 已被其他执行流领取或已到终态（含已 sent 的幂等保护）
+
     const pj = await this.prisma.publishJob.findUniqueOrThrow({
       where: { id: job.data.publishJobId },
       include: { contentItem: { include: { generations: true } } },
     });
-    if (pj.status === "sent") return; // 手动重试等场景的幂等保护
 
     const gen = pj.contentItem.generations.find(
       (g) => g.platform === pj.platform,
@@ -71,7 +78,10 @@ export class PublishProcessor extends WorkerHost {
     const jobs = await this.prisma.publishJob.findMany({
       where: { contentItemId },
     });
-    if (!jobs.length || jobs.some((j) => j.status === "queued")) return;
+    const inFlight = jobs.some(
+      (j) => j.status === "queued" || j.status === "publishing",
+    );
+    if (!jobs.length || inFlight) return;
 
     const allSent = jobs.every((j) => j.status === "sent");
     await this.prisma.contentItem.update({

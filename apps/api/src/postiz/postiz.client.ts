@@ -8,6 +8,9 @@ export class PostizClient {
   private readonly logger = new Logger(PostizClient.name);
   private readonly baseUrl = process.env.POSTIZ_API_URL ?? '';
   private readonly apiKey = process.env.POSTIZ_API_KEY ?? '';
+  // API 调用与媒体上传的时间上限，避免 worker 无限挂起
+  private static readonly API_TIMEOUT_MS = 60_000;
+  private static readonly UPLOAD_TIMEOUT_MS = 120_000;
 
   constructor(private readonly instagramImages: InstagramImageService) {}
 
@@ -85,6 +88,7 @@ export class PostizClient {
       method: 'POST',
       headers: { Authorization: this.apiKey },
       body: form,
+      signal: AbortSignal.timeout(PostizClient.UPLOAD_TIMEOUT_MS),
     });
     if (!res.ok) throw new Error(`instagram media upload ${res.status}`);
     return res.json() as Promise<{ id: string; path: string }>;
@@ -94,7 +98,9 @@ export class PostizClient {
   private async uploadFromUrl(
     url: string,
   ): Promise<{ id: string; path: string }> {
-    const download = await fetch(url);
+    const download = await fetch(url, {
+      signal: AbortSignal.timeout(PostizClient.UPLOAD_TIMEOUT_MS),
+    });
     if (!download.ok) throw new Error(`download ${download.status}`);
     const blob = await download.blob();
     const filename = new URL(url).pathname.split('/').pop() || 'image.jpg';
@@ -105,6 +111,7 @@ export class PostizClient {
       method: 'POST',
       headers: { Authorization: this.apiKey },
       body: form,
+      signal: AbortSignal.timeout(PostizClient.UPLOAD_TIMEOUT_MS),
     });
     if (!res.ok) throw new Error(`upload ${res.status}`);
     return res.json() as Promise<{ id: string; path: string }>;
@@ -122,6 +129,7 @@ export class PostizClient {
         'Content-Type': 'application/json',
       },
       body: body ? JSON.stringify(body) : undefined,
+      signal: AbortSignal.timeout(PostizClient.API_TIMEOUT_MS),
     });
     if (!res.ok) {
       const text = await res.text();

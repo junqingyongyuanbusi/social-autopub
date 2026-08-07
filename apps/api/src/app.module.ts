@@ -4,6 +4,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { BullModule } from '@nestjs/bullmq';
 import { LoggerModule } from 'nestjs-pino';
 import { PrismaModule } from './prisma/prisma.module';
+import { RedisModule } from './redis/redis.module';
 import { HealthController } from './health/health.controller';
 import { IngestModule } from './ingest/ingest.module';
 import { NotionModule } from './sources/notion/notion.module';
@@ -24,6 +25,7 @@ import { CommonModule } from './common/common.module';
       connection: { url: process.env.REDIS_URL },
     }),
     PrismaModule,
+    RedisModule,
     CommonModule,
     PostizModule,
     IngestModule,

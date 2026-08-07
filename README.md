@@ -17,7 +17,7 @@ apps/console   Next.js 运营控制台：内容队列 / 审核工作台 / 发布
    Settings → Providers 配 Meta / X 应用凭证并完成各账号 OAuth；生成 API Key。
    验证限流：默认 30 req/h，自托管尝试 `API_LIMIT` 调高。
 2. **业务服务**：本仓库推到 GitHub → Railway 新建项目，添加 Postgres、Redis 插件，再建两个服务：
-   - `api`：Root Directory `apps/api`，Build `pnpm install && pnpm build`，Start `pnpm start`（启动时 `prisma db push` 自动建表；稳定后可切换为 migrate 流程）
+   - `api`：Root Directory `apps/api`，Build `pnpm install && pnpm build`，Start `pnpm start`（启动时 `prisma migrate deploy` 自动建表/迁移；首次从空库部署即可。若某库此前已用 `db push` 建过表，需先在该库执行 `prisma migrate resolve --applied 0_init` 标记基线）
    - `console`：Root Directory `apps/console`，Build `pnpm install && pnpm build`，Start `pnpm start`
 3. **环境变量**：按根目录 `.env.example` 配置到各服务；staging 环境保持 `DRY_RUN=true`（发布只建 Postiz 草稿）。
 4. **初始化数据**（全部在控制台页面完成，无需操作数据库）：

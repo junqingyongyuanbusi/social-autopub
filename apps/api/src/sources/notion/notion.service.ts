@@ -23,7 +23,10 @@ const includesAny = (name: string, keys: readonly string[]) => {
 @Injectable()
 export class NotionService {
   private readonly logger = new Logger(NotionService.name);
-  readonly client = new Client({ auth: process.env.NOTION_TOKEN });
+  readonly client = new Client({
+    auth: process.env.NOTION_TOKEN,
+    timeoutMs: 90_000, // 单请求显式超时，防止 SDK 默认 60s 对长正文块抓取过紧
+  });
   private readonly schemaCache = new Map<
     string,
     { schema: DbSchema; at: number }
