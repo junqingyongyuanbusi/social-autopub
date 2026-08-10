@@ -69,7 +69,7 @@ docker compose up -d --build
 
 见根目录 `.env.example`（每个变量都带注释）。补充两点：
 - `PUBLIC_API_URL`：仅 Postiz OAuth 绑号回调需要对外可达（compose 已注释对应 Caddy 放行）；若账号在 Postiz 网页手动绑，此变量可不配置
-- `API_INTERNAL_URL`：console 服务端直连 api 用（compose 内 `http://api:3000`；不配则回退公网地址）
+- `API_INTERNAL_URL`：console 服务端直连 api 用（Docker Compose：`http://api:3000`；当前 Railway：`http://api.railway.internal:8080`；不配则回退公网地址）
 
 ## Notion 接入约定
 
