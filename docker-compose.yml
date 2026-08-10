@@ -64,10 +64,10 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    # 只绑宿主回环口，供宿主 Nginx/Caddy 反代访问；不要改成 0.0.0.0 直接暴露公网
-    ports:
-      - "127.0.0.1:${API_PORT:-3000}:3000"
-    # 日志走 stdout，交给 docker 日志驱动采集
+    # ---- 内网模式：api 不给宿主机/公网暴露任何端口，只存在于 Docker 内网 -----
+    # console 经 API_INTERNAL_URL=http://api:3000 走内网关调；如确需外部使用
+    # /v1/ingest 或 Postiz OAuth webhook，由下方 Caddy/client 反向代理按路径放行。
+    # 诊断用快速临时暴露：换行改成  ports: ["127.0.0.1:${API_PORT:-3000}:3000"]
 
   console:
     build:
@@ -90,8 +90,8 @@ services:
     ports:
       - "127.0.0.1:${CONSOLE_PORT:-3001}:3001"
 
-  # 可选：若宿主没有 nginx/caddy，可用这个容器反代对外（需开放 80/443，并在 api/console 上再加
-  # environment: AUTH_TRUST_HOST: "true" 已够，Caddy 会设置 X-Forwarded-* 头）：
+  # 唯一公网入口：反代对外（需开放 80/443）。数据流 浏览器→console→(内网)→api。
+  # api 不走公网；仅当要用 HTTP ingest 或 Postiz OAuth 回拨时，才在如下 Caddyfile 里显式放行对应路径：
   # caddy:
   #   image: caddy:2-alpine
   #   restart: unless-stopped
@@ -103,8 +103,13 @@ services:
   #     - caddydata:/data
   #   depends_on: [api, console]
   #   # Caddyfile 示例：
-  #   #   api.example.com { reverse_proxy api:3000 }
-  #   #   console.example.com { reverse_proxy console:3001 }
+  #   #   console.example.com { reverse_proxy console:3001 }            # 运营控制台（唯一对外页面）
+  #   #   api.example.com {
+  #   #     # 默认全部内网；按需只放行这两条路径
+  #   #     handle POST /v1/ingest { reverse_proxy api:3000 }
+  #   #     handle /v1/postiz-oauth/webhook { reverse_proxy api:3000 }
+  #   #     respond 404
+  #   #   }
 
 volumes:
   pgdata:

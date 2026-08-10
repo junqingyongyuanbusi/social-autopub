@@ -41,8 +41,11 @@ cp .env.example .env        # 填入真实值，尤其：PUBLIC_API_URL 等
 # 3. 启动（Postgres + Redis + api + console 全量编排）
 docker compose up -d --build
 
-# 4. 反向代理对外（api→127.0.0.1:3000，console→127.0.0.1:3001，配 HTTPS）
-#    Nginx/Caddy 均可；Caddy 示例： api.example.com { reverse_proxy 127.0.0.1:3000 }
+# 4. 唯一公网入口：console（api 全内网，无对外端口）
+#    数据流：浏览器 → console:3001 →（Docker 内网）→ api:3000
+#    反向代理只需对 console 开放（配 HTTPS）：
+#    console.example.com { reverse_proxy 127.0.0.1:3001 }
+#    若要用 HTTP ingest 或 Postiz OAuth 绑号，见 compose 内 Caddy 注释按路径放行 api
 ```
 
 **初始化（全部在控制台页面完成，无需动数据库）**
@@ -64,7 +67,7 @@ docker compose up -d --build
 ## 环境变量速查
 
 见根目录 `.env.example`（每个变量都带注释）。补充两点：
-- `PUBLIC_API_URL`：Docker 部署必须（OAuth webhook 公网回调地址）；Railway 用 `RAILWAY_PUBLIC_DOMAIN` 自动兼容
+- `PUBLIC_API_URL`：仅 Postiz OAuth 绑号回调需要对外可达（compose 已注释对应 Caddy 放行）；若账号在 Postiz 网页手动绑，此变量可不配置
 - `API_INTERNAL_URL`：console 服务端直连 api 用（compose 内 `http://api:3000`；不配则回退公网地址）
 
 ## Notion 接入约定
