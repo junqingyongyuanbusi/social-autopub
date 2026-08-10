@@ -2,8 +2,8 @@
 # 用法：
 #   1) 复制本文件旁生成 .env（参考仓库根 .env.example），填好所有 ${...} 引用的变量
 #   2) docker compose up -d --build
-#   3) 前置反向代理：把 api / console 的公共域名打到对应容器端口（api=3000, console=3001）
-# 注意：api 的 PUBLIC_API_URL 必须是公网可回拨、且能被 Postiz 访问到的地址（OAuth webhook 用）
+#   3) 前置反向代理：仅把 console 暴露为公网入口（console=3001，api 只走 Docker 内网）
+# 若使用 Postiz OAuth webhook，再按下方示例只放行对应 api 路径
 services:
   postgres:
     image: postgres:17-alpine
@@ -73,9 +73,6 @@ services:
     build:
       context: .
       dockerfile: apps/console/Dockerfile
-      args:
-        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3000}
-        NEXT_PUBLIC_POSTIZ_URL: ${NEXT_PUBLIC_POSTIZ_URL}
     restart: unless-stopped
     environment:
       NODE_ENV: production
@@ -85,7 +82,8 @@ services:
       AUTH_SECRET: ${AUTH_SECRET}
       AUTH_TRUST_HOST: "true"
     depends_on:
-      - api
+      api:
+        condition: service_healthy
     # 只绑宿主回环口，供宿主反代访问，勿直接 0.0.0.0 暴露公网
     ports:
       - "127.0.0.1:${CONSOLE_PORT:-3001}:3001"

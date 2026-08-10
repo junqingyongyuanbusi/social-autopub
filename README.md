@@ -28,9 +28,10 @@ HTTP /v1/ingest ────┼─> api ─> LLM 生成 ─> 审核工作台 ─
 前置：一台装有 Docker + compose 的服务器，以及 `apps/api`、`apps/console` 的域名（绑 HTTPS）。
 
 ```bash
-# 1. 拉代码（任选一个源）
-git clone git@gitlab.fx696.com:mkt-dept/social-autopub.git   # 或 GitHub
-cd social-autopub && git checkout main
+# 1. 拉代码（GitLab 默认 master 即生产分支；GitHub 对应 main）
+git clone git@gitlab.fx696.com:mkt-dept/social-autopub.git
+cd social-autopub
+# 如从 GitHub 克隆：git checkout main
 
 # 2. 配置环境变量（参照根目录 .env.example；Docker 下这些必填）
 cp .env.example .env        # 填入真实值，尤其：PUBLIC_API_URL 等
