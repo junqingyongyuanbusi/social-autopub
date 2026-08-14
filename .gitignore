@@ -14,5 +14,14 @@ dist/
 *.pfx
 .DS_Store
 
+# Pi project runtime state; keep .pi documentation and prompts tracked
+.pi/npm/
+.pi/git/
+.pi/sessions/
+.pi/extensions/**/node_modules/
+.pi/*.log
+.pi/
+AGENTS.md
+
 # spec 工作流脚手架：仅本地使用，不入库/不推送
 .spec-workflow/
