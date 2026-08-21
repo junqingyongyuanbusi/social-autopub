@@ -10,6 +10,8 @@ export const ingestSchema = z.object({
   media: z.array(z.string().url()).default([]),
   target_platforms: z.array(z.enum(['x', 'instagram', 'facebook'])).default([]),
   publish_at: z.string().datetime().optional(),
+  source_table_type: z.string().min(1).optional(),
+  publish_link: z.string().optional()
 });
 
 export type IngestPayload = z.infer<typeof ingestSchema>;

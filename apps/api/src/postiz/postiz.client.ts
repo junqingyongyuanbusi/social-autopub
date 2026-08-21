@@ -1,5 +1,23 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InstagramImageService } from './instagram-image.service';
+import { PostizRateGate } from './postiz-rate-gate.service';
+
+export interface PreparedPostizMedia {
+  id: string;
+  path: string;
+}
+
+export interface PostizMediaInput {
+  url: string;
+  buffer?: Buffer;
+}
+
+export class PostizOutcomeUnknownError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = PostizOutcomeUnknownError.name;
+  }
+}
 
 // Postiz Public API 薄封装。若日后弃用 Postiz，仅需替换此文件实现
 // 注意：Postiz 默认限流 30 req/h，自托管可调 API_LIMIT；调用方（publish.processor）已做队列节流
@@ -12,7 +30,14 @@ export class PostizClient {
   private static readonly API_TIMEOUT_MS = 60_000;
   private static readonly UPLOAD_TIMEOUT_MS = 120_000;
 
-  constructor(private readonly instagramImages: InstagramImageService) {}
+  constructor(
+    private readonly instagramImages: InstagramImageService,
+    private readonly rateGate: PostizRateGate,
+  ) {}
+
+  acquireRequestBudget() {
+    return this.rateGate.acquire();
+  }
 
   // 平台默认 settings（Generation.settings 可覆盖）
   private static readonly DEFAULT_SETTINGS: Record<string, object> = {
@@ -27,32 +52,50 @@ export class PostizClient {
     return this.request('GET', '/integrations');
   }
 
-  async createPost(input: {
-    integrationId: string;
-    platform: string;
-    content: string;
-    mediaUrls: string[];
-    publishAt?: Date | null;
-    settings?: object | null;
-    dryRun: boolean;
-  }): Promise<{ postId?: string }> {
-    const images = await Promise.all(
-      input.mediaUrls.map(async (url, i) => {
-        if (input.platform === 'instagram') {
-          const variant = await this.instagramImages.createPublishVariant(url);
+  async prepareMedia(
+    platform: string,
+    media: Array<string | PostizMediaInput>,
+  ): Promise<PreparedPostizMedia[]> {
+    return Promise.all(
+      media.map(async (value, i) => {
+        const source = typeof value === 'string' ? { url: value } : value;
+        const filename = new URL(source.url).pathname.split('/').pop() || 'image.jpg';
+        if (platform === 'instagram') {
+          const variant = source.buffer
+            ? await this.instagramImages.createPublishVariantFromBuffer(source.buffer)
+            : await this.instagramImages.createPublishVariant(source.url);
           return this.uploadBuffer(
             variant.buffer,
             `instagram-${i + 1}.jpg`,
             'image/jpeg',
           );
         }
-
-        // IG 之外保持现有兼容行为：上传失败时仍交给 Postiz 尝试读取原 URL
-        const uploaded = await this.uploadFromUrl(url).catch(() => null);
-        return { id: uploaded?.id ?? `m${i}`, path: uploaded?.path ?? url };
+        if (source.buffer) {
+          return this.uploadBuffer(
+            source.buffer,
+            filename,
+            this.imageContentType(filename),
+          );
+        }
+        return this.uploadFromUrl(source.url);
       }),
     );
+  }
 
+  async createPost(input: {
+    integrationId: string;
+    platform: string;
+    content: string;
+    mediaUrls?: string[];
+    preparedMedia?: PreparedPostizMedia[];
+    publishAt?: Date | null;
+    settings?: object | null;
+    dryRun: boolean;
+    requestBudgetAcquired?: boolean;
+  }): Promise<{ postId?: string }> {
+    const images =
+      input.preparedMedia ??
+      (await this.prepareMedia(input.platform, input.mediaUrls ?? []));
     const body = {
       type: input.dryRun ? 'draft' : input.publishAt ? 'schedule' : 'now',
       date: (input.publishAt ?? new Date()).toISOString(),
@@ -69,7 +112,13 @@ export class PostizClient {
         },
       ],
     };
-    const res = await this.request<any>('POST', '/posts', body);
+    const res = await this.request<any>(
+      'POST',
+      '/posts',
+      body,
+      true,
+      input.requestBudgetAcquired === true,
+    );
     return { postId: res?.[0]?.postId ?? res?.id };
   }
 
@@ -84,6 +133,7 @@ export class PostizClient {
       new Blob([new Uint8Array(buffer)], { type: contentType }),
       filename,
     );
+    await this.rateGate.acquire();
     const res = await fetch(`${this.baseUrl}/upload`, {
       method: 'POST',
       headers: { Authorization: this.apiKey },
@@ -98,15 +148,16 @@ export class PostizClient {
   private async uploadFromUrl(
     url: string,
   ): Promise<{ id: string; path: string }> {
-    const download = await fetch(url, {
-      signal: AbortSignal.timeout(PostizClient.UPLOAD_TIMEOUT_MS),
-    });
-    if (!download.ok) throw new Error(`download ${download.status}`);
-    const blob = await download.blob();
+    const buffer = await this.instagramImages.downloadPublicImage(url);
     const filename = new URL(url).pathname.split('/').pop() || 'image.jpg';
-
+    const contentType = this.imageContentType(filename);
     const form = new FormData();
-    form.append('file', blob, filename);
+    form.append(
+      'file',
+      new Blob([new Uint8Array(buffer)], { type: contentType }),
+      filename,
+    );
+    await this.rateGate.acquire();
     const res = await fetch(`${this.baseUrl}/upload`, {
       method: 'POST',
       headers: { Authorization: this.apiKey },
@@ -117,27 +168,62 @@ export class PostizClient {
     return res.json() as Promise<{ id: string; path: string }>;
   }
 
+  private imageContentType(filename: string) {
+    const lower = filename.toLowerCase();
+    if (lower.endsWith('.png')) return 'image/png';
+    if (lower.endsWith('.webp')) return 'image/webp';
+    if (lower.endsWith('.gif')) return 'image/gif';
+    return 'image/jpeg';
+  }
+
   private async request<T>(
     method: string,
     path: string,
     body?: object,
+    outcomeSensitive = false,
+    requestBudgetAcquired = false,
   ): Promise<T> {
-    const res = await fetch(`${this.baseUrl}${path}`, {
-      method,
-      headers: {
-        Authorization: this.apiKey,
-        'Content-Type': 'application/json',
-      },
-      body: body ? JSON.stringify(body) : undefined,
-      signal: AbortSignal.timeout(PostizClient.API_TIMEOUT_MS),
-    });
+    if (!requestBudgetAcquired) await this.rateGate.acquire();
+    let res: Response;
+    try {
+      res = await fetch(`${this.baseUrl}${path}`, {
+        method,
+        headers: {
+          Authorization: this.apiKey,
+          'Content-Type': 'application/json',
+        },
+        body: body ? JSON.stringify(body) : undefined,
+        signal: AbortSignal.timeout(PostizClient.API_TIMEOUT_MS),
+      });
+    } catch (error) {
+      if (outcomeSensitive) {
+        throw new PostizOutcomeUnknownError(
+          `Postiz 可能已受理请求，但客户端未收到响应：${(error as Error).message}`,
+        );
+      }
+      throw error;
+    }
     if (!res.ok) {
       const text = await res.text();
       this.logger.error(
         `postiz ${method} ${path} -> ${res.status}: ${text.slice(0, 500)}`,
       );
+      if (outcomeSensitive && res.status >= 500) {
+        throw new PostizOutcomeUnknownError(
+          `Postiz 返回 ${res.status}，发送结果未知，需要人工对账`,
+        );
+      }
       throw new Error(`postiz ${res.status}`);
     }
-    return res.json() as Promise<T>;
+    try {
+      return (await res.json()) as T;
+    } catch (error) {
+      if (outcomeSensitive) {
+        throw new PostizOutcomeUnknownError(
+          `Postiz 已返回成功响应但结果无法解析：${(error as Error).message}`,
+        );
+      }
+      throw error;
+    }
   }
 }

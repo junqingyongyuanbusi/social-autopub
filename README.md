@@ -1,21 +1,21 @@
 # social-autopub — 多语言社媒自动发布系统
 
-Notion / HTTP 推送 → LLM 生成各平台文案 → 人工审核 → Postiz 发布到 X / Instagram / Facebook。
-支持 10 种语言 × 2 类内容表，自动路由到对应账号。
+Notion / HTTP 推送 / WikiFX 热点选题 → LLM 生成各平台文案 → 人工审核 → Postiz 发布到 X / Instagram / Facebook。
+支持 10 种语言 × 2 类内容表，自动路由到对应账号。WikiFX 是控制台内的候选素材渠道，只有运营明确采用后才进入生成队列。
 
 ## 架构
 
 ```
-Notion(10语言×2表) ─┐                     ┌─> X
+Notion(10语言×2表) ─┐                         ┌─> X
 HTTP /v1/ingest ────┼─> api ─> LLM 生成 ─> 审核工作台 ─> Postiz ──┤─> Instagram
-                    │   (轮询/队列)       (console)               └─> Facebook
-        Postgres(状态)  Redis(队列: BullMQ)        Postiz(账号/发布)
+WikiFX 热点 ─> 选题 ─┘   (轮询/队列)       (console)               └─> Facebook
+          Postgres(状态)  Redis(队列: BullMQ)        Postiz(账号/发布)
 ```
 
 | 模块 | 说明 |
 |---|---|
-| `apps/api` | NestJS 单体：Notion 轮询、HTTP ingest、LLM 生成、路由矩阵、Postiz 发布（BullMQ worker 同进程） |
-| `apps/console` | Next.js 运营控制台：内容队列 / 审核工作台 / 发布记录 / 设置 |
+| `apps/api` | NestJS 单体：Notion 轮询、WikiFX 热点读取、HTTP ingest、LLM 生成、路由矩阵、Postiz 发布（BullMQ worker 同进程） |
+| `apps/console` | Next.js 运营控制台：热点选题 / 内容队列 / 审核工作台 / 发布记录 / 设置 |
 | Postgres + Redis | 系统状态与任务队列；Docker 部署自带，Railway 用插件 |
 
 - 表结构/字段：`apps/api/prisma/schema.prisma`；环境变量按根目录 `.env.example`
@@ -70,14 +70,29 @@ docker compose up -d --build
 见根目录 `.env.example`（每个变量都带注释）。补充两点：
 - `PUBLIC_API_URL`：仅 Postiz OAuth 绑号回调需要对外可达（compose 已注释对应 Caddy 放行）；若账号在 Postiz 网页手动绑，此变量可不配置
 - `API_INTERNAL_URL`：console 服务端直连 api 用（Docker Compose：`http://api:3000`；当前 Railway：`http://api.railway.internal:8080`；不配则回退公网地址）
+- `WIKIFX_ARTICLES_API_KEY`：WikiFX 热点榜单 Bearer Key，仅配置在 api 服务端；浏览器和 console 均不持有
+- `WIKIFX_ARTICLES_API_URL`：可选，上游地址不变时使用代码默认值；自定义 HTTPS 地址还必须显式设置 `WIKIFX_ALLOW_CUSTOM_URL=true`
 
 ## Notion 接入约定
 
-- 字段：`social_media_sent`(Checkbox，勾选即触发)、`内容类型`(新闻/教育/测评/曝光，可空按表兜底)、`摘要`(正文为空兜底)
+- 字段：`social_media_sent`(Checkbox，勾选即触发)、`内容类型`(新闻/教育/测评/曝光，可空按表兜底)、`摘要`(正文为空兜底)、`发布链接 / Publish link`(exposure-review 必填，支持 URL/Rich text/Formula string)
+- `exposure-review` 保存原始 `.com` 链接；发布时只把 hostname 末尾 `.com` 派生为 `.me`，按内容类型和语言追加只读 CTA。缺失或非法链接会阻止生成/发布并在控制台显示错误。
 - 系统**只读 Notion 不回写**；字段名调整只改 `apps/api/src/sources/notion/notion.constants.ts`
+- 历史补链必须在获得数据库变更与 Railway 部署批准、确认 migration 已成功应用，并确认新版本 rollout 已完全结束、所有旧 API/generation worker 实例均已停止后运行；部署窗口更稳妥的做法是暂停 Notion poll/generation worker，避免旧 worker 消费新版 `generationRevision/forceReview` 任务。仓库开发环境先完成 API build，再执行 `pnpm --filter api backfill:exposure-review-links`；已部署的 Railway API runtime 不包含 pnpm workspace，应执行 `npm run backfill:exposure-review-links`，也可直接执行 `node dist/scripts/backfill-exposure-review-links.js`。命令使用专用 application context（不启动发布 worker/定时任务），完整分页并输出分类 JSON 报告；`requeued` 表示已安全入生成队列，不表示草稿已经生成。它不会处理已禁用来源、`GENERATING`、已有 PublishJob 或已进入批准/发布终态的内容。若报告中 `activeGenerating > 0`，等待这些任务结束后再次执行。历史重生成任务始终强制进入 `REVIEW`，即使 `AUTO_PUBLISH=true`。该命令会写数据库和生成队列，必须单独批准后运行。
+
+## WikiFX 热点接入约定
+
+- 控制台「热点选题」按最近 `1..3` 个完整自然日读取榜单，未采用的热点不会创建 `ContentItem` 或调用 LLM。
+- 采用时 api 会从可信上游响应或服务端缓存重新查找文章，浏览器提交的标题、正文和图片不会直接入库。
+- 正文为空的文章只展示，不允许采用；有效首图会进入生成稿媒体。
+- `externalId` 使用 `language:article_id`，避免多语言文章 ID 相互覆盖。
+- WikiFX 内容即使在 `AUTO_PUBLISH=true` 下也强制进入人工审核。
+- 服务端本地缓存 60 秒；上游暂不可用时最多回退到 24 小时内的旧缓存。详细接口说明见 `apps/api/WIKIFX.md`。
 
 ## 快速验证
 
 1. `curl <api>/healthz` → `{"ok":true,"deps":{"db":"ok","redis":"ok"}}`
 2. HTTP 入口：`curl -X POST <api>/v1/ingest -H "x-api-key: <key>" -H "Content-Type: application/json" -d '{"external_id":"t1","language":"en","content_type":"news","title":"Test","body":"Hello"}'`
-3. 全链路（staging）：Notion 勾选 → 5 分钟内队列出现 → 审核「通过并发布」→ Postiz 出草稿（`DRY_RUN`）
+3. WikiFX 读取：登录控制台打开「热点选题」，确认统计区间、缓存状态和列表可见；没有 Key 时页面应显示服务未配置错误
+4. WikiFX 采用会创建内容并调用 LLM，只在获得对应副作用批准后联调；采用后应进入 `REVIEW`，不得自动发布
+5. 全链路（staging）：Notion 勾选 → 5 分钟内队列出现 → 审核「通过并发布」→ Postiz 出草稿（`DRY_RUN`）

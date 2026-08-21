@@ -72,6 +72,7 @@ export function buildGenerationPrompt(
     contentType: string;
     title: string;
     body: string;
+    bodyBudget?: number | null
   },
 ) {
   return render(config.generationTemplate, {
@@ -79,7 +80,11 @@ export function buildGenerationPrompt(
     language: input.language,
     contentType: input.contentType,
     typeTone: config.typeTones[input.contentType] ?? "",
-    platformRule: config.platformRules[input.platform] ?? "",
+    platformRule: `${config.platformRules[input.platform] ?? ""}${
+      input.bodyBudget !== null && input.bodyBudget !== undefined
+        ? `；系统尾注已预留字符，正文必须控制在 ${input.bodyBudget} 个平台计权字符以内`
+        : ""
+    }`,
     title: input.title,
     body: input.body.slice(0, 6000),
   });

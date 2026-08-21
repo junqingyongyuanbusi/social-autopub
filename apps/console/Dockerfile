@@ -14,12 +14,12 @@ RUN corepack enable && corepack prepare pnpm@9.15.0 --activate
 WORKDIR /repo
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
 COPY apps/console/package.json apps/console/package.json
-RUN --mount=type=cache,id=pnpm-console,target=/pnpm/store \
+RUN --mount=type=cache,id=s/cb4a503d-900e-4999-a7be-a61b2f2f48f3-pnpm,target=/pnpm/store \
     pnpm config set store-dir /pnpm/store \
     && pnpm install --frozen-lockfile
 
 COPY apps/console apps/console
-RUN --mount=type=cache,id=next-console,target=/repo/apps/console/.next/cache \
+RUN --mount=type=cache,id=s/cb4a503d-900e-4999-a7be-a61b2f2f48f3-next,target=/repo/apps/console/.next/cache \
     pnpm --filter console build
 
 # 保留完整 standalone 目录树（含 pnpm 虚拟仓库），防止拆目录后 node_modules 符号链接断裂。

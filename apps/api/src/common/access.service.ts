@@ -56,4 +56,24 @@ export class AccessService {
     });
     if (!link) throw new ForbiddenException(`no ${permission} permission for language ${language}`);
   }
+
+  async assertIntegrationPermission(
+    user: RequestUser,
+    postizIntegrationId: string,
+    permission: AccountPermission,
+  ) {
+    if (isAdmin(user)) return;
+    const link = await this.prisma.userAccount.findFirst({
+      where: {
+        userId: user.id,
+        [permission]: true,
+        account: { postizIntegrationId },
+      },
+    });
+    if (!link) {
+      throw new ForbiddenException(
+        `no ${permission} permission for integration ${postizIntegrationId}`,
+      );
+    }
+  }
 }

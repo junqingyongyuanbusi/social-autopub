@@ -4,6 +4,7 @@ export const PROP_MATCHERS = {
   sent: ["social_media_sent"], // checkbox：唯一触发条件，勾选后立即发布
   type: ["文章类型", "内容类型"],
   summary: ["摘要", "summary"],
+  publishLink: ["发布链接", "publish link"]
 } as const;
 
 // 文章类型字段值 → 系统内容类型（大小写不敏感，兼容中英文写法）

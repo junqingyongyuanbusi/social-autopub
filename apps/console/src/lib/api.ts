@@ -11,6 +11,11 @@ export interface Generation {
   platform: string;
   content: string;
   media: string[];
+  systemSuffix?: string;
+  finalContent?: string;
+  measuredLength?: number;
+  platformLimit?: number | null;
+  previewProblem?: string | null
 }
 
 export interface PublishJobRow {
@@ -27,15 +32,92 @@ export interface PublishJobRow {
 export interface ContentItem {
   id: string;
   source: string;
+  externalId: string;
   language: string;
   contentType: string;
   title: string;
   body?: string;
   status: string;
+  sourceTableType?: string | null;
+  publishLink?: string | null;
+  lastError?: string | null
   publishAt?: string | null;
   createdAt: string;
+  rawPayload?: unknown | null;
   generations: Generation[];
   jobs: PublishJobRow[];
+}
+
+export interface ContentListParams {
+  status?: string;
+  language?: string;
+  contentType?: string;
+  source?: string;
+}
+
+export type WikiFxCacheStatus = "upstream" | "local-fresh" | "local-stale";
+
+export interface WikiFxDataQuality {
+  sampled: boolean;
+  data_loss_from_other_row: boolean;
+  skipped_rows: number;
+}
+
+export interface WikiFxCache {
+  status: WikiFxCacheStatus;
+  fetched_at: string;
+  wikifx_cache: string | null;
+  age: string | null;
+  request_id: string | null;
+}
+
+export interface WikiFxAdoption {
+  content_item_id: string;
+  status: string;
+  created_at: string;
+}
+
+export interface WikiFxTopic {
+  id: string;
+  article_id: string;
+  language: string;
+  title: string;
+  url: string | null;
+  country: string | null;
+  region: string | null;
+  view_count: number;
+  active_users: number;
+  avg_engagement_seconds: number;
+  click_count: number | null;
+  read_count: number | null;
+  content: string | null;
+  content_message: string | null;
+  content_status: string | null;
+  first_image_url: string | null;
+  adoption: WikiFxAdoption | null;
+}
+
+export interface WikiFxTopicsResponse {
+  statistics_start: string;
+  statistics_end: string;
+  days: number;
+  top: number;
+  property_id: string;
+  data_quality: WikiFxDataQuality;
+  cache: WikiFxCache;
+  items: WikiFxTopic[];
+}
+
+export interface WikiFxAdoptInput {
+  article_id: string;
+  language: string;
+  days?: number;
+}
+
+export interface WikiFxAdoptResponse {
+  content_item_id: string;
+  status: string;
+  created_at: string;
 }
 
 export interface UserAccountLink {
@@ -132,8 +214,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   // 服务端组件直连 API：附加管理密钥与当前用户身份头（动态 import 避免打进客户端包）
   const serverHeaders: Record<string, string> = {};
   if (isServer) {
-    if (process.env.ADMIN_API_KEY)
+    if (process.env.ADMIN_API_KEY) {
       serverHeaders["x-admin-key"] = process.env.ADMIN_API_KEY;
+    }
     const { auth } = await import("@/auth");
     const session = await auth();
     const user = session?.user as { id?: string; role?: string } | undefined;
@@ -151,11 +234,31 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       ...init?.headers,
     },
   });
-  if (!res.ok) throw new Error(`API ${res.status}`);
+  if (!res.ok) {
+    let message = `API ${res.status}`;
+    try {
+      const payload = (await res.json()) as {
+        message?: unknown;
+        error?: unknown;
+      };
+      const candidate = payload.message ?? payload.error;
+      if (typeof candidate === "string" && candidate.trim()) {
+        message = candidate;
+      } else if (Array.isArray(candidate)) {
+        const first = candidate.find((value): value is string =>
+          typeof value === "string" && value.trim().length > 0
+        );
+        if (first) message = first;
+      }
+    } catch {
+      // Some upstream/proxy failures have no JSON body. Keep the safe status message.
+    }
+    throw new Error(message);
+  }
   return res.json() as Promise<T>;
 }
 
-export function fetchContents(params: Record<string, string | undefined> = {}) {
+export function fetchContents(params: ContentListParams = {}) {
   const qs = new URLSearchParams(
     Object.entries(params).filter((kv): kv is [string, string] =>
       Boolean(kv[1]),
@@ -169,7 +272,7 @@ export const fetchContent = (id: string) =>
 export const fetchJobs = (params: Record<string, string | undefined> = {}) => {
   const qs = new URLSearchParams(
     Object.entries(params).filter((kv): kv is [string, string] =>
-      Boolean(kv[1]),
+      Boolean(kv[1])
     ),
   ).toString();
   return request<PublishJobRow[]>(`/v1/jobs${qs ? `?${qs}` : ""}`);
@@ -181,12 +284,30 @@ export const fetchStats = () => request<Stats>("/v1/stats");
 export const fetchUsers = () => request<ConsoleUser[]>("/v1/users");
 export const fetchPrompts = () =>
   request<PromptVersionsResponse>("/v1/prompts");
+
+export function fetchWikiFxTopics(
+  params: { days?: number; top?: number } = {},
+) {
+  const qs = new URLSearchParams();
+  if (params.days !== undefined) qs.set("days", String(params.days));
+  if (params.top !== undefined) qs.set("top", String(params.top));
+  const query = qs.toString();
+  return request<WikiFxTopicsResponse>(
+    `/v1/topics/wikifx${query ? `?${query}` : ""}`,
+  );
+}
+
+export const adoptWikiFxTopic = (input: WikiFxAdoptInput) =>
+  request<WikiFxAdoptResponse>("/v1/topics/wikifx/adopt", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+
 export const previewInstagramImage = (url: string) =>
   request<InstagramPreview>("/v1/media/instagram-preview", {
     method: "POST",
     body: JSON.stringify({ url }),
   });
-
 export const postAction = (path: string, body?: object) =>
   request<unknown>(path, {
     method: "POST",

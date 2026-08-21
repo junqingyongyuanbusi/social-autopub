@@ -40,6 +40,21 @@ model SourceDatabase {
   tableType        String // 库内两张表的业务区分
   enabled          Boolean   @default(true)
   lastPolledAt     DateTime?
+  ingestFailures   NotionIngestFailure[]
+}
+
+model NotionIngestFailure {
+  id               String         @id @default(cuid())
+  sourceDatabaseId String
+  sourceDatabase   SourceDatabase @relation(fields: [sourceDatabaseId], references: [id], onDelete: Cascade)
+  pageId           String
+  error            String
+  attempts         Int            @default(1)
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  @@unique([sourceDatabaseId, pageId])
+  @@index([updatedAt])
 }
 
 enum ContentStatus {
@@ -59,15 +74,23 @@ model ContentItem {
   id              String        @id @default(cuid())
   source          String // notion | http
   externalId      String // Notion page id 或调用方自带 id
-  contentHash     String // 幂等：内容变更才视为新任务
+  contentHash       String // 幂等：内容变更才视为新任务
+  mediaFingerprint  String? // Notion 首图的稳定来源指纹；legacy 行分阶段补齐
   language        String
   contentType     String // news | education | review | exposure
   title           String
   body            String
   media           Json          @default("[]")
-  targetPlatforms String[] // 空数组 = 按路由矩阵默认规则
+  targetPlatforms String[]      @default([]) // 空数组 = 按路由矩阵默认规则
   publishAt       DateTime? // 空 = 立即
   status          ContentStatus @default(PENDING)
+  sourceTableType String?
+  publishLink     String?
+  lastError          String?
+  generationRevision Int           @default(0)
+  publishRevision    Int           @default(0)
+  publishTargets     Json?
+  forceReview        Boolean       @default(false)
   rawPayload      Json?
   generations     Generation[]
   jobs            PublishJob[]
@@ -148,13 +171,17 @@ model RoutingRule {
 model PublishJob {
   id                  String      @id @default(cuid())
   contentItemId       String
+  publishRevision     Int         @default(0)
   contentItem         ContentItem @relation(fields: [contentItemId], references: [id], onDelete: Cascade)
   platform            String
   postizIntegrationId String
   postizPostId        String?
-  status              String      @default("queued") // queued | sent | failed
+  status              String      @default("queued") // queued | publishing | unknown | sent | failed | cancelled
+  mediaSnapshot       Json?
   error               String?
   scheduledAt         DateTime?
   createdAt           DateTime    @default(now())
   updatedAt           DateTime    @updatedAt
+
+  @@unique([contentItemId, publishRevision, platform, postizIntegrationId])
 }

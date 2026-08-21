@@ -9,6 +9,7 @@ const STATUS_LABEL: Record<string, { label: string; className: string }> = {
   publishing: { label: '发布中', className: 'bg-warning/10 text-warning' },
   sent: { label: '已提交', className: 'bg-success/10 text-success' },
   failed: { label: '失败', className: 'bg-destructive/10 text-destructive' },
+  unknown: { label: '待对账', className: 'bg-warning/20 text-warning' },
 };
 
 // 发布记录：全部子任务流水，失败可重试
@@ -33,6 +34,33 @@ export default function RecordsPage() {
       load();
     } catch {
       setError('重试请求失败');
+    } finally {
+      setBusyId('');
+    }
+  };
+
+  const resolveUnknown = async (id: string, outcome: 'sent' | 'failed') => {
+    const postizPostId =
+      outcome === 'sent'
+        ? window.prompt('请输入在 Postiz 核实到的 post ID')?.trim()
+        : undefined;
+    if (outcome === 'sent' && !postizPostId) return;
+    if (
+      outcome === 'failed' &&
+      !window.confirm('确认 Postiz/目标平台没有发送该帖子，并允许后续安全重试？')
+    ) {
+      return;
+    }
+    setBusyId(id);
+    setError('');
+    try {
+      await postAction(`/v1/jobs/${id}/resolve-unknown`, {
+        outcome,
+        ...(postizPostId ? { postizPostId } : {}),
+      });
+      load();
+    } catch {
+      setError('对账操作失败，请刷新后重试');
     } finally {
       setBusyId('');
     }
@@ -88,6 +116,24 @@ export default function RecordsPage() {
                         >
                           {busyId === job.id ? '重试中…' : '重试'}
                         </button>
+                      )}
+                      {job.status === 'unknown' && (
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => resolveUnknown(job.id, 'sent')}
+                            disabled={busyId === job.id}
+                            className="rounded-md border border-success/50 px-2 py-1 text-xs text-success disabled:opacity-50"
+                          >
+                            确认已发送
+                          </button>
+                          <button
+                            onClick={() => resolveUnknown(job.id, 'failed')}
+                            disabled={busyId === job.id}
+                            className="rounded-md border border-destructive/50 px-2 py-1 text-xs text-destructive disabled:opacity-50"
+                          >
+                            确认未发送
+                          </button>
+                        </div>
                       )}
                     </td>
                   </tr>

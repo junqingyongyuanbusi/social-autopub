@@ -13,6 +13,12 @@ import {
   PromptConfig,
 } from "./prompts";
 import { validateForPlatform } from "./validators";
+import {
+  bodyBudget,
+  composeSocialPost,
+  ContentValidationError,
+  exposureReviewLinkProblem,
+} from "./social-post"
 
 const outputSchema = z.object({ content: z.string().min(1) });
 
@@ -31,83 +37,227 @@ export class GenerationService {
     private readonly prompts: PromptConfigService,
   ) {}
 
-  async generateFor(contentItemId: string) {
+  async generateFor(
+    contentItemId: string,
+    forceReview = false,
+    generationRevision?: number,
+  ) {
+    const expectedRevision = generationRevision ?? 0
+    const claimed = await this.prisma.contentItem.updateMany({
+      where: {
+        id: contentItemId,
+        status: "PENDING",
+        generationRevision: expectedRevision,
+      },
+      data: { status: "GENERATING", lastError: null }
+    });
+    if (!claimed.count) return;
+
     const item = await this.prisma.contentItem.findUniqueOrThrow({
       where: { id: contentItemId },
     });
-    await this.prisma.contentItem.update({
-      where: { id: item.id },
-      data: { status: "GENERATING" },
-    });
 
+    const mustReview = forceReview || item.forceReview
+    const linkProblem = exposureReviewLinkProblem(item);
+    if (linkProblem) {
+      await this.prisma.contentItem.updateMany({
+        where: {
+          id: item.id,
+          status: "GENERATING",
+          generationRevision: expectedRevision,
+        },
+        data: { status: "FAILED", lastError: linkProblem },
+      });
+      return;
+    }
     // 目标平台：内容指定优先，否则取路由矩阵中该语言×类型已配置的平台
+    if (!(await this.isGenerating(item.id, expectedRevision))) return;
     const platforms = item.targetPlatforms.length
       ? item.targetPlatforms
       : await this.routing.platformsFor(item.language, item.contentType);
     if (!platforms.length) {
-      await this.prisma.contentItem.update({
-        where: { id: item.id },
-        data: { status: "FAILED" },
+      const failed = await this.prisma.contentItem.updateMany({
+        where: {
+          id: item.id,
+          status: "GENERATING",
+          generationRevision: expectedRevision,
+        },
+        data: {
+          status: "FAILED",
+          lastError: `未配置发布路由：${item.language}/${item.contentType}`,
+        }
       });
+      if (!failed.count) return;
       throw new Error(
         `no routing platforms for ${item.language}/${item.contentType}`,
       );
     }
 
     const promptConfig = await this.prompts.getActive();
+    const finalProblems: string[] = []
     for (const platform of platforms) {
-      const content = await this.generateOne(platform, item, promptConfig);
-      await this.prisma.generation.upsert({
-        where: { contentItemId_platform: { contentItemId: item.id, platform } },
-        create: {
-          contentItemId: item.id,
+      if (!(await this.isGenerating(item.id, expectedRevision))) return;
+      const result = await this.generateOne(platform, item, promptConfig);
+      finalProblems.push(...result.problems.map((problem) => `${platform}: ${problem}`));
+      if (
+        !(await this.saveGenerationIfOwned(
+          item.id,
+          expectedRevision,
           platform,
-          content,
-          promptVersionId: promptConfig.id,
-          media: (item.media ?? []) as Prisma.InputJsonValue,
-        },
-        update: { content, promptVersionId: promptConfig.id },
-      });
+          result.content,
+          promptConfig.id,
+          (item.media ?? []) as Prisma.InputJsonValue,
+        ))
+      )
+        return
     }
 
     // AUTO_PUBLISH=true：生成完成即发布（Notion 勾选 social_media_sent 即视为人工确认）
-    // 否则进入控制台人工审核
-    if (process.env.AUTO_PUBLISH === "true") {
-      await this.prisma.contentItem.update({
-        where: { id: item.id },
-        data: { status: "APPROVED" },
-      });
-      const dispatched = await this.publish.dispatch(item.id);
-      this.logger.log(
-        `auto-published ${item.id}: ${dispatched} job(s) for ${platforms.length} platform(s)`,
-      );
+    // 否则进入控制台人工审核；WikiFX 始终强制人工审核
+    const shouldAutoPublish =
+      !mustReview &&
+      finalProblems.length === 0 &&
+      process.env.AUTO_PUBLISH === "true" &&
+      item.source !== "wikifx"
+    const publishTargets = shouldAutoPublish
+      ? await this.publish.targetSnapshot(item.id)
+      : [];
+    const autoPublishReady =
+      shouldAutoPublish && publishTargets.length === platforms.length;
+    const transitioned = await this.prisma.contentItem.updateMany({
+      where: {
+        id: item.id,
+        status: "GENERATING",
+        generationRevision: expectedRevision,
+      },
+      data: {
+        status: autoPublishReady ? "APPROVED" : "REVIEW",
+        lastError: finalProblems.length
+          ? finalProblems.join("；")
+          : shouldAutoPublish && !autoPublishReady
+            ? "未配置完整发布账号，已转人工审核"
+            : null,
+        forceReview: autoPublishReady
+          ? false
+          : mustReview || (shouldAutoPublish && !autoPublishReady),
+        publishTargets: autoPublishReady ? publishTargets : Prisma.JsonNull,
+      }
+    });
+    if (!transitioned.count) return;
+
+    if (autoPublishReady) {
+      try {
+        const preparationQueued = await this.publish.dispatch(
+          item.id,
+          publishTargets,
+        );
+        this.logger.log(
+          `publish preparation queued for ${item.id}: ${preparationQueued} batch job(s) for ${platforms.length} platform(s)`,
+        );
+      } catch (error) {
+        await this.prisma.contentItem.updateMany({
+          where: {
+            id: item.id,
+            status: { in: ["APPROVED", "PUBLISHING"] },
+            generationRevision: expectedRevision,
+          },
+          data: {
+            status: error instanceof ContentValidationError ? "REVIEW" : "FAILED",
+            lastError: (error as Error).message,
+          }
+        });
+        throw error;
+      }
     } else {
-      await this.prisma.contentItem.update({
-        where: { id: item.id },
-        data: { status: "REVIEW" },
-      });
       this.logger.log(
         `generated ${platforms.length} drafts for ${item.id}, waiting review`,
       );
     }
   }
 
-  async markFailed(contentItemId: string) {
-    await this.prisma.contentItem
-      .update({ where: { id: contentItemId }, data: { status: "FAILED" } })
-      .catch(() => undefined);
+  async releaseForRetry(contentItemId: string, generationRevision?: number) {
+    await this.prisma.contentItem.updateMany({
+      where: {
+        id: contentItemId,
+        status: "GENERATING",
+        generationRevision: generationRevision ?? 0,
+      },
+      data: { status: "PENDING" },
+    })
+  }
+
+  async markFailed(
+    contentItemId: string,
+    error?: string,
+    generationRevision?: number,
+  ) {
+    await this.prisma.contentItem.updateMany({
+      where: {
+        id: contentItemId,
+        status: { in: ["PENDING", "GENERATING"] },
+        generationRevision: generationRevision ?? 0,
+      },
+      data: { status: "FAILED", ...(error ? { lastError: error } : {}) },
+    });
+  }
+
+  private async saveGenerationIfOwned(
+    contentItemId: string,
+    generationRevision: number,
+    platform: string,
+    content: string,
+    promptVersionId: string | null,
+    media: Prisma.InputJsonValue,
+  ) {
+    return this.prisma.$transaction(async (tx) => {
+      const owned = await tx.contentItem.updateMany({
+        where: {
+          id: contentItemId,
+          status: "GENERATING",
+          generationRevision,
+        },
+        data: { updatedAt: new Date() },
+      });
+      if (!owned.count) return false;
+      await tx.generation.upsert({
+        where: { contentItemId_platform: { contentItemId, platform } },
+        create: {
+          contentItemId,
+          platform,
+          content,
+          promptVersionId,
+          media,
+        },
+        update: { content, promptVersionId },
+      });
+      return true;
+    });
+  }
+
+  private async isGenerating(contentItemId: string, generationRevision: number) {
+    const item = await this.prisma.contentItem.findUnique({
+      where: { id: contentItemId },
+      select: { status: true, generationRevision: true },
+    });
+    return (
+      item?.status === "GENERATING" &&
+      item.generationRevision === generationRevision
+    );
   }
 
   private async generateOne(
     platform: string,
     item: {
+      source: string;
+      sourceTableType: string | null;
+      publishLink: string | null;
       language: string;
       contentType: string;
       title: string;
       body: string;
     },
     promptConfig: PromptConfig,
-  ): Promise<string> {
+  ): Promise<{ content: string; problems: string[] }> {
     const outputLanguage = outputLanguageFor(item.language);
     let content = this.parse(
       await this.llm.complete(
@@ -115,14 +265,16 @@ export class GenerationService {
           ...item,
           platform,
           language: outputLanguage,
+          bodyBudget: bodyBudget(platform, item)
         }),
         promptConfig.systemPrompt,
       ),
     );
 
     for (let i = 0; i < GenerationService.MAX_REVISIONS; i++) {
-      const problems = validateForPlatform(platform, content);
-      if (!problems.length) return content;
+      const composed = composeSocialPost(platform, content, item);
+      const problems = validateForPlatform(platform, composed.content, content)
+      if (!problems.length) return { content, problems: [] }
       this.logger.warn(
         `${platform} draft invalid (round ${i + 1}): ${problems.join("; ")}`,
       );
@@ -138,8 +290,12 @@ export class GenerationService {
         ),
       );
     }
-    // 重写轮次用尽仍不达标：保留最后一版进入人工审核，由运营兜底
-    return content;
+    // 重写轮次用尽仍不达标：保留裸正文进入人工审核，系统后缀在预览/发布时组合。
+    const finalContent = composeSocialPost(platform, content, item).content;
+    return {
+      content,
+      problems: validateForPlatform(platform, finalContent, content),
+    }
   }
 
   // 剥离代码围栏/前后缀杂讯后按 schema 解析

@@ -13,7 +13,7 @@ WORKDIR /repo
 # 先只拷依赖清单，最大化利用构建缓存
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
 COPY apps/api/package.json apps/api/package.json
-RUN --mount=type=cache,id=pnpm-api,target=/pnpm/store \
+RUN --mount=type=cache,id=s/2d21f73a-130b-4b39-af4b-df78404b120d-pnpm,target=/pnpm/store \
     pnpm config set store-dir /pnpm/store \
     && pnpm install --frozen-lockfile
 
@@ -21,7 +21,7 @@ COPY apps/api apps/api
 RUN pnpm --filter api build   # prisma generate && nest build
 
 # pnpm deploy：产出仅含 prod 依赖的独立运行时目录（含 dist/prisma/package.json）
-RUN --mount=type=cache,id=pnpm-api,target=/pnpm/store \
+RUN --mount=type=cache,id=s/2d21f73a-130b-4b39-af4b-df78404b120d-pnpm,target=/pnpm/store \
     pnpm --filter "api..." --prod deploy /out/api
 
 # ---------- runtime ----------
