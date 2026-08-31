@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, NotFoundException, Param, Patch, Post, Put, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, NotFoundException, Param, Patch, Post, Put, UseGuards } from '@nestjs/common';
 import { z } from 'zod';
 import { AdminKeyGuard } from '../common/admin-key.guard';
 import { AdminRoleGuard } from '../common/admin-role.guard';
@@ -64,6 +64,22 @@ export class AccountsController {
     return this.prisma.account.update({ where: { id }, data: parsed.data });
   }
 
+  // 删除失联账号（仅 admin）：仅允许清理已与 Postiz 失联的台账行；
+  // 路由规则一并删除，用户授权走 UserAccount onDelete 级联，PublishJob 仅存 integrationId 字符串不受影响
+  @Delete(':id')
+  @UseGuards(AdminRoleGuard)
+  async remove(@Param('id') id: string) {
+    const account = await this.prisma.account.findUnique({ where: { id } });
+    if (!account) throw new NotFoundException();
+    if (account.status !== 'disconnected') {
+      throw new BadRequestException('仅允许删除失联账号');
+    }
+    await this.prisma.$transaction([
+      this.prisma.routingRule.deleteMany({ where: { accountId: id } }),
+      this.prisma.account.delete({ where: { id } }),
+    ]);
+    return { ok: true };
+  }
   // 全量覆盖某账号的用户授权（仅 admin）
   @Put(':id/users')
   @UseGuards(AdminRoleGuard)

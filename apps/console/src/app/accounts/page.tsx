@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useSession } from 'next-auth/react';
-import { Account, ConsoleUser, fetchAccounts, fetchUsers, patchAction, postAction, putAction } from '@/lib/api';
+import { Account, ConsoleUser, deleteAction, fetchAccounts, fetchUsers, patchAction, postAction, putAction } from '@/lib/api';
 
 // 账号台账：全员可见（operator 仅见被分配账号）；市场/负责人/用户分配仅 admin 可编辑
 export default function AccountsPage() {
@@ -15,6 +15,7 @@ export default function AccountsPage() {
   const [form, setForm] = useState({ market: '', ownerId: '', note: '' });
   const [assigned, setAssigned] = useState<Set<string>>(new Set());
   const [syncing, setSyncing] = useState(false);
+  const [deleting, setDeleting] = useState(''); // 删除中的 account id
   const [binding, setBinding] = useState(false);
   const [provider, setProvider] = useState('x');
   const [notice, setNotice] = useState('');
@@ -68,6 +69,21 @@ export default function AccountsPage() {
       setError('同步失败，请确认 Postiz 服务与 API Key 配置');
     } finally {
       setSyncing(false);
+    }
+  };
+
+  // 删除失联台账行（仅 admin 可见按钮）：只清本地台账与路由规则，失联即 Postiz 侧已不存在
+  const removeAccount = async (account: Account) => {
+    if (!window.confirm(`确认删除失联账号「${account.name}（${account.platform}）」？将同时清除其路由规则，且不可恢复。`)) return;
+    setDeleting(account.id);
+    setError('');
+    try {
+      await deleteAction(`/v1/accounts/${account.id}`);
+      load();
+    } catch {
+      setError('删除失败，请刷新后重试');
+    } finally {
+      setDeleting('');
     }
   };
 
@@ -229,9 +245,20 @@ export default function AccountsPage() {
                     上次同步：{account.lastSyncedAt ? new Date(account.lastSyncedAt).toLocaleString('zh-CN') : '—'}
                   </p>
                   {isAdmin && (
-                    <button onClick={() => startEdit(account)} className="mt-1 text-primary hover:underline">
-                      编辑台账
-                    </button>
+                    <div className="mt-1 flex items-center gap-3">
+                      <button onClick={() => startEdit(account)} className="text-primary hover:underline">
+                        编辑台账
+                      </button>
+                      {account.status === 'disconnected' && (
+                        <button
+                          onClick={() => removeAccount(account)}
+                          disabled={deleting === account.id}
+                          className="text-destructive hover:underline disabled:opacity-50"
+                        >
+                          {deleting === account.id ? '删除中…' : '删除'}
+                        </button>
+                      )}
+                    </div>
                   )}
                 </div>
               )}
