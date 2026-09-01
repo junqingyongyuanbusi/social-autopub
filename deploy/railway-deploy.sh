@@ -24,13 +24,11 @@ echo "==> 3/7 创建并部署 WikiFX content sidecar"
 railway add --service wikifx-content
 # SQLite 正文库必须挂持久卷，否则每次 sidecar redeploy 都会丢缓存。
 railway volume --service wikifx-content add --mount-path /app/data
-cd "$ROOT/apps/wikifx-content"
 railway variables --service wikifx-content \
   --set "WIKIFX_CONTENT_API_KEY=${CONTENT_KEY}" \
   --set "WIKIFX_CONTENT_DATA_DIR=/app/data" \
   --set "PORT=8000"
-railway up --service wikifx-content --detach
-cd "$ROOT"
+railway up "$ROOT/apps/wikifx-content" --path-as-root --service wikifx-content --detach
 
 # Railway private networking uses the service DNS name.  Keep this URL private;
 # do not replace it with a public domain just to make the API reachable.
