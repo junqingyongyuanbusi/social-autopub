@@ -25,3 +25,6 @@ AGENTS.md
 
 # spec 工作流脚手架：仅本地使用，不入库/不推送
 .spec-workflow/
+
+# 构建产物增量缓存
+*.tsbuildinfo

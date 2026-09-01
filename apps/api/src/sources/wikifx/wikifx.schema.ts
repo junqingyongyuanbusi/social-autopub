@@ -52,7 +52,33 @@ export const wikifxAdoptSchema = z.object({
   article_id: articleIdSchema,
   language: languageSchema,
   days: z.coerce.number().int().min(1).max(3).optional(),
+  /** manual=true 表示采用手动抓取的正文缓存，不要求文章在最近榜单内 */
+  manual: z.boolean().optional().default(false),
 });
+
+export const wikifxFetchByUrlSchema = z.object({
+  url: z.string().trim().min(1).max(2048),
+  /** 抓取失败或正文为空时是否强制触发上游抓取；默认 false 只读 */
+  force: z.boolean().optional().default(false),
+});
+
+/** 上游单篇正文端点（ArticleContentDetail）的宽松校验，供手动抓取使用 */
+export const wikifxArticleDetailSchema = z
+  .object({
+    language: z.string(),
+    article_id: z.string(),
+    title: z.string().nullable().optional(),
+    url: z.string().nullable().optional(),
+    summary: z.string().nullable().optional(),
+    first_image_url: z.string().nullable().optional(),
+    content: z.string().nullable().optional(),
+    content_chars: z.number().nullable().optional(),
+    published_date: z.string().nullable().optional(),
+    status: z.string().nullable().optional(),
+    error_code: z.string().nullable().optional(),
+  })
+  .passthrough();
 
 export type WikifxArticle = z.infer<typeof wikifxArticleSchema>;
 export type WikifxTopResponse = z.infer<typeof wikifxTopResponseSchema>;
+export type WikifxArticleDetail = z.infer<typeof wikifxArticleDetailSchema>;

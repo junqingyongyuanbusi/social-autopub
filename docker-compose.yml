@@ -47,6 +47,7 @@ services:
       WIKIFX_ARTICLES_API_KEY: ${WIKIFX_ARTICLES_API_KEY:-}
       WIKIFX_ARTICLES_API_URL: ${WIKIFX_ARTICLES_API_URL:-https://articles-api.chouai.cc.cd/api/v1/public/wikifx/articles/top}
       WIKIFX_ALLOW_CUSTOM_URL: ${WIKIFX_ALLOW_CUSTOM_URL:-false}
+      WIKIFX_ALLOW_INSECURE_HTTP: ${WIKIFX_ALLOW_INSECURE_HTTP:-false}
       LLM_PROVIDER: ${LLM_PROVIDER:-openrouter}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
       GENERATION_MODEL: ${GENERATION_MODEL:-anthropic/claude-sonnet-4.5}

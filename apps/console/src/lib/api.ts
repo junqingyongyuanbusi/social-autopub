@@ -112,12 +112,31 @@ export interface WikiFxAdoptInput {
   article_id: string;
   language: string;
   days?: number;
+  manual?: boolean;
 }
 
 export interface WikiFxAdoptResponse {
   content_item_id: string;
   status: string;
   created_at: string;
+}
+
+export interface WikiFxManualArticle {
+  id: string;
+  language: string;
+  article_id: string;
+  title: string;
+  url: string | null;
+  content: string | null;
+  first_image_url: string | null;
+  content_status: string | null;
+  content_message: string | null;
+}
+
+export interface WikiFxFetchByUrlResponse {
+  origin: "cache" | "upstream";
+  article: WikiFxManualArticle;
+  cache_ttl_seconds: number;
 }
 
 export interface UserAccountLink {
@@ -301,6 +320,15 @@ export const adoptWikiFxTopic = (input: WikiFxAdoptInput) =>
   request<WikiFxAdoptResponse>("/v1/topics/wikifx/adopt", {
     method: "POST",
     body: JSON.stringify(input),
+  });
+
+export const fetchWikiFxArticleByUrl = (
+  url: string,
+  force = false,
+) =>
+  request<WikiFxFetchByUrlResponse>("/v1/topics/wikifx/fetch-by-url", {
+    method: "POST",
+    body: JSON.stringify({ url, force }),
   });
 
 export const previewInstagramImage = (url: string) =>

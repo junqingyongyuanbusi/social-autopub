@@ -4,9 +4,12 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import {
   adoptWikiFxTopic,
+  fetchWikiFxArticleByUrl,
+  WikiFxFetchByUrlResponse,
   WikiFxTopic,
   WikiFxTopicsResponse,
 } from "@/lib/api";
+import { parseWikiFXArticleUrl } from "@/lib/wikifx-url";
 
 const DAY_OPTIONS = [1, 2, 3];
 const CACHE_LABEL: Record<WikiFxTopicsResponse["cache"]["status"], string> = {
@@ -27,6 +30,210 @@ function formatMetric(value: number) {
 function formatEngagement(seconds: number) {
   if (seconds < 60) return `${Math.round(seconds)} 秒`;
   return `${Math.floor(seconds / 60)} 分 ${Math.round(seconds % 60)} 秒`;
+}
+
+function ManualFetchCard() {
+  const [url, setUrl] = useState("");
+  const [force, setForce] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [adopting, setAdopting] = useState(false);
+  const [result, setResult] = useState<WikiFxFetchByUrlResponse | null>(null);
+  const [error, setError] = useState("");
+  const [localError, setLocalError] = useState("");
+  const [adopted, setAdopted] = useState<{
+    content_item_id: string;
+    status: string;
+  } | null>(null);
+
+  const fetchNow = async () => {
+    const trimmed = url.trim();
+    if (!trimmed) {
+      setLocalError("请输入 WikiFX 文章链接");
+      return;
+    }
+    let target;
+    try {
+      target = parseWikiFXArticleUrl(trimmed);
+    } catch (cause) {
+      setLocalError(
+        cause instanceof Error ? cause.message : "链接格式不正确",
+      );
+      return;
+    }
+    setLocalError("");
+    setError("");
+    setResult(null);
+    setAdopted(null);
+    setLoading(true);
+    try {
+      const data = await fetchWikiFxArticleByUrl(target.canonicalUrl, force);
+      setResult(data);
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : "抓取失败，请稍后重试",
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const adopt = async () => {
+    if (!result || adopting) return;
+    setAdopting(true);
+    setError("");
+    try {
+      const adopted = await adoptWikiFxTopic({
+        article_id: result.article.article_id,
+        language: result.article.language,
+        manual: true,
+      });
+      setAdopted({
+        content_item_id: adopted.content_item_id,
+        status: adopted.status,
+      });
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : "采用失败，请重试。",
+      );
+    } finally {
+      setAdopting(false);
+    }
+  };
+
+  return (
+    <section
+      className="rounded-lg border border-border bg-card p-4"
+      aria-label="手动抓取 WikiFX 文章"
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <h2 className="text-sm font-medium">手动抓取</h2>
+        <span className="text-xs text-muted-foreground">
+          粘贴 WikiFX newsdetail 链接，抓取正文后采用进入审核队列。链接不会被转发，只提取语言与文章 ID。
+        </span>
+      </div>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <input
+          value={url}
+          onChange={(event) => {
+            setUrl(event.target.value);
+            if (localError) setLocalError("");
+            if (error) setError("");
+            setResult(null);
+            setAdopted(null);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && !loading) void fetchNow();
+          }}
+          placeholder="https://www.wikifx.com/ja/newsdetail/202608202624732011.html"
+          aria-label="WikiFX 文章链接"
+          className="min-h-10 w-full min-w-0 flex-1 rounded-md border border-border px-2.5 sm:max-w-md focus:border-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+        />
+        <label className="inline-flex items-center gap-1.5 text-sm">
+          <input
+            type="checkbox"
+            checked={force}
+            onChange={(event) => setForce(event.target.checked)}
+            className="h-4 w-4 rounded border-border accent-primary"
+          />
+          <span className="text-muted-foreground">强制抓取</span>
+        </label>
+        <button
+          type="button"
+          onClick={() => void fetchNow()}
+          disabled={loading || !url.trim()}
+          className="inline-flex min-h-10 items-center rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground active:scale-[0.98] hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {loading ? "抓取中…" : "抓取并预览"}
+        </button>
+      </div>
+      {localError && (
+        <p role="alert" className="mt-2 text-sm text-destructive">
+          {localError}
+        </p>
+      )}
+      {error && (
+        <p role="alert" className="mt-2 text-sm text-destructive">
+          {error}
+        </p>
+      )}
+      {result && (
+        <div className="mt-3 rounded-md border border-border bg-muted/30 p-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium uppercase">
+              {result.article.language}
+            </span>
+            <span className="text-sm font-medium">{result.article.title}</span>
+            <span className="text-xs text-muted-foreground">
+              文章 ID：{result.article.article_id}
+            </span>
+            {result.origin === "cache" && (
+              <span className="rounded-full bg-info/10 px-2 py-0.5 text-xs text-info">
+                读取正文库缓存
+              </span>
+            )}
+          </div>
+          {result.article.first_image_url && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={result.article.first_image_url}
+              alt="文章首图"
+              width={320}
+              height={180}
+              loading="lazy"
+              className="mt-2 max-h-44 w-auto rounded-md border border-border object-contain"
+            />
+          )}
+          <p
+            dir="auto"
+            className="mt-2 line-clamp-6 whitespace-pre-wrap break-words text-xs leading-5 text-muted-foreground"
+          >
+            {result.article.content}
+          </p>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            {result.article.url && (
+              <a
+                href={result.article.url}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex min-h-9 items-center rounded-md border border-border px-3 text-xs hover:border-primary hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+              >
+                查看原文
+              </a>
+            )}
+            {adopted ? (
+              <span className="inline-flex flex-wrap items-center gap-2 text-sm text-success">
+                已采用 · {adopted.status}
+                <Link
+                  href={`/review/${adopted.content_item_id}`}
+                  className="underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                >
+                  去审核
+                </Link>
+                <Link
+                  href="/queue?source=wikifx"
+                  className="underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                >
+                  看队列
+                </Link>
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={() => void adopt()}
+                disabled={adopting || !result.article.content?.trim()}
+                title={!result.article.content?.trim()
+                  ? "正文不可用，暂时不能采用"
+                  : undefined}
+                className="inline-flex min-h-9 items-center rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground active:scale-[0.98] hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {adopting ? "采用中…" : "采用并进入队列"}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+    </section>
+  );
 }
 
 function contentState(topic: WikiFxTopic) {
@@ -123,6 +330,7 @@ export function TopicsConsole(
 
   return (
     <div className="space-y-4">
+      <ManualFetchCard />
       <section className="rounded-lg border border-border bg-card p-4" aria-label="统计信息">
         <div className="flex flex-wrap items-center gap-2 text-sm">
           <span className="font-medium">统计区间</span>

@@ -20,9 +20,12 @@ import {
   WikifxClientResult,
   WikifxUpstreamMetadata,
 } from './wikifx.client';
+import { parseWikiFXArticleUrl } from './wikifx-url';
 import {
   WikifxArticle,
+  WikifxArticleDetail,
   WikifxTopResponse,
+  wikifxArticleDetailSchema,
   wikifxTopResponseSchema,
 } from './wikifx.schema';
 
@@ -30,6 +33,17 @@ interface CacheEntry {
   fetchedAt: string;
   data: WikifxTopResponse;
   metadata: WikifxUpstreamMetadata;
+}
+
+export interface WikifxManualArticle {
+  language: string;
+  article_id: string;
+  title: string;
+  url: string | null;
+  content: string | null;
+  first_image_url: string | null;
+  content_status: string | null;
+  content_message: string | null;
 }
 
 interface TrustedResult extends WikifxClientResult {
@@ -46,6 +60,8 @@ interface TrustedResult extends WikifxClientResult {
 export class WikifxService {
   private static readonly FRESH_MS = 60_000;
   private static readonly STALE_MS = 24 * 60 * 60 * 1_000;
+  /** 手动抓取结果缓存：采用时从缓存取正文，不重复抓上游 */
+  private static readonly MANUAL_TTL_MS = 10 * 60 * 1_000;
 
   constructor(
     private readonly client: WikifxClient,
@@ -86,17 +102,30 @@ export class WikifxService {
 
   async adopt(
     user: RequestUser,
-    input: { article_id: string; language: string; days?: number },
+    input: { article_id: string; language: string; days?: number; manual?: boolean },
   ) {
     await this.access.assertPermission(user, input.language, 'canEdit');
-    const result = await this.trustedFetch(input.days ?? 3, 1);
-    const article = result.data.items.find(
-      (item) =>
-        item.article_id === input.article_id && item.language === input.language,
-    );
+
+    let article: WikifxArticle | null = null;
+    if (input.manual) {
+      const manual = await this.readManualCache(input.language, input.article_id);
+      if (manual) {
+        article = this.manualToArticle(manual);
+      }
+    } else {
+      const result = await this.trustedFetch(input.days ?? 3, 1);
+      article =
+        result.data.items.find(
+          (item) =>
+            item.article_id === input.article_id &&
+            item.language === input.language,
+        ) ?? null;
+    }
     if (!article) {
       throw new ConflictException(
-        'WikiFX article is not present in the trusted topic result',
+        input.manual
+          ? 'WikiFX 手动抓取结果已过期，请先重新抓取'
+          : 'WikiFX article is not present in the trusted topic result',
       );
     }
 
@@ -123,6 +152,7 @@ export class WikifxService {
         rawPayload: {
           source: 'wikifx',
           article,
+          adopted_via: input.manual ? 'manual' : 'topic',
         },
       },
     );
@@ -131,6 +161,74 @@ export class WikifxService {
       status: item.status,
       created_at: item.createdAt.toISOString(),
     };
+  }
+
+  /**
+   * 按受控 URL 手动抓取单篇正文。先读库（force=false），正文缺失或抓取失败
+   * 时按 force 决定是否触发上游强制抓取；结果短期缓存供采用时复用。
+   */
+  async fetchByUrl(user: RequestUser, url: string, force: boolean) {
+    const target = parseWikiFXArticleUrl(url);
+    await this.access.assertPermission(user, target.language, 'canEdit');
+
+    const cached = await this.readManualCache(target.language, target.articleId);
+    if (!force && cached) {
+      return this.manualResponse(cached, 'cache');
+    }
+
+    let detail: WikifxArticleDetail | null = null;
+    let status = 0;
+    try {
+      const result = await this.client.fetchArticle(
+        target.language,
+        target.articleId,
+        { force },
+      );
+      status = result.status;
+      const parsed = wikifxArticleDetailSchema.safeParse(result.data);
+      if (parsed.success) {
+        detail = parsed.data;
+      }
+    } catch (error) {
+      if (error instanceof WikifxClientError && error.kind === 'config') {
+        throw new ServiceUnavailableException(error.message);
+      }
+      if (error instanceof WikifxClientError && error.kind === 'timeout') {
+        throw new GatewayTimeoutException(error.message);
+      }
+      throw new BadGatewayException(
+        error instanceof Error
+          ? error.message
+          : 'WikiFX 单篇正文读取失败',
+      );
+    }
+
+    if (!detail || status !== 200) {
+      throw new UnprocessableEntityException(
+        this.detailFailureMessage(status, detail),
+      );
+    }
+    const content = detail.content?.trim() ?? '';
+    if (!content) {
+      throw new UnprocessableEntityException(
+        force
+          ? '已触发抓取但未获取到正文，请稍后重试或换一篇'
+          : '正文尚未抓取，请选择“强制抓取”后再试',
+      );
+    }
+    const title = detail.title?.trim() || `WikiFX 文章 ${detail.article_id}`;
+    const manual: WikifxManualArticle = {
+      language: detail.language || target.language,
+      article_id: detail.article_id || target.articleId,
+      title,
+      url: this.httpUrl(detail.url) ?? target.canonicalUrl,
+      content,
+      first_image_url: this.httpUrl(detail.first_image_url),
+      content_status: detail.status ?? null,
+      content_message: detail.error_code ?? null,
+    };
+    await this.writeManualCache(manual);
+    return this.manualResponse(manual, 'upstream');
   }
 
   private async trustedFetch(days: number, top: number): Promise<TrustedResult> {
@@ -195,6 +293,82 @@ export class WikifxService {
       }
     }
     return result;
+  }
+
+  private manualResponse(manual: WikifxManualArticle, origin: 'cache' | 'upstream') {
+    return {
+      origin,
+      article: {
+        ...manual,
+        id: `${manual.language}:${manual.article_id}`,
+      },
+      cache_ttl_seconds: Math.floor(WikifxService.MANUAL_TTL_MS / 1_000),
+    };
+  }
+
+  private manualToArticle(manual: WikifxManualArticle): WikifxArticle {
+    return {
+      article_id: manual.article_id,
+      language: manual.language,
+      article_url: manual.url ?? '',
+      article_title: manual.title,
+      content: manual.content,
+      content_status: manual.content_status,
+      content_message: manual.content_message,
+      first_image_url: manual.first_image_url,
+      content_country: null,
+      content_region: null,
+      view_count: 0,
+      active_users: 0,
+      avg_engagement_seconds: 0,
+      click_count: null,
+      read_count: null,
+    };
+  }
+
+  private detailFailureMessage(status: number, detail: WikifxArticleDetail | null) {
+    if (status === 404) return '该文章不在正文库中，请选择“强制抓取”后再试';
+    if (detail?.error_code === 'not_found') return '原文已下架或不存在';
+    if (detail?.error_code === 'blocked') return '目标站拦截了抓取，请稍后再试';
+    if (detail?.error_code) return `抓取未成功：${detail.error_code}`;
+    return '单篇正文读取失败，请稍后重试';
+  }
+
+  private manualCacheKey(language: string, articleId: string) {
+    return `wikifx:manual:${language}:${articleId}`;
+  }
+
+  private async readManualCache(
+    language: string,
+    articleId: string,
+  ): Promise<WikifxManualArticle | null> {
+    const raw = await this.redis.get(this.manualCacheKey(language, articleId)).catch(() => null);
+    if (!raw) return null;
+    try {
+      const value = JSON.parse(raw) as WikifxManualArticle;
+      if (
+        !value ||
+        value.language !== language ||
+        value.article_id !== articleId ||
+        !value.content
+      ) {
+        return null;
+      }
+      return value;
+    } catch {
+      return null;
+    }
+  }
+
+  private async writeManualCache(manual: WikifxManualArticle) {
+    await this.redis
+      .set(
+        this.manualCacheKey(manual.language, manual.article_id),
+        JSON.stringify(manual),
+        'EX',
+        Math.ceil(WikifxService.MANUAL_TTL_MS / 1_000),
+      )
+      .catch(() => undefined);
   }
 
   private normalizeArticle(article: WikifxArticle) {

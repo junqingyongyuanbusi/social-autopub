@@ -33,33 +33,10 @@ export class WikifxClient {
   private static readonly RETRYABLE_STATUSES = new Set([429, 502, 503]);
 
   async fetchTop(days: number, top: number): Promise<WikifxClientResult> {
-    const apiKey = process.env.WIKIFX_ARTICLES_API_KEY;
-    if (!apiKey) {
-      throw new WikifxClientError(
-        'WikiFX articles API is not configured',
-        undefined,
-        null,
-        'config',
-      );
-    }
-
-    const url = new URL(
-      process.env.WIKIFX_ARTICLES_API_URL ?? WikifxClient.DEFAULT_URL,
-    );
-    const allowCustomUrl = process.env.WIKIFX_ALLOW_CUSTOM_URL === 'true';
-    if (
-      url.protocol !== 'https:' ||
-      (!allowCustomUrl && url.hostname !== 'articles-api.chouai.cc.cd')
-    ) {
-      throw new WikifxClientError(
-        'WikiFX articles API URL is not allowed',
-        undefined,
-        null,
-        'config',
-      );
-    }
+    const url = this.configuredUrl();
     url.searchParams.set('days', String(days));
     url.searchParams.set('top', String(top));
+    const apiKey = this.apiKeyValue();
     const deadline = Date.now() + WikifxClient.TOTAL_TIMEOUT_MS;
     for (let attempt = 0; attempt <= WikifxClient.RETRY_DELAYS_MS.length; attempt++) {
       const remaining = deadline - Date.now();
@@ -164,6 +141,146 @@ export class WikifxClient {
       throw new WikifxClientError(message, response.status, requestId);
     }
 
+    throw new WikifxClientError('WikiFX articles API request failed');
+  }
+
+  /**
+   * 单篇正文：GET 读库优先（未抓取回 404），force=true 时先 POST /fetch 触发
+   * 抓取再 GET。只接受白名单 language/article_id（调用方已校验）。
+   */
+  async fetchArticle(
+    language: string,
+    articleId: string,
+    options: { force?: boolean } = {},
+  ): Promise<{ status: number; data: unknown }> {
+    if (options.force) {
+      const fetchUrl = this.articleUrl(language, articleId, '/fetch');
+      const fetchResult = await this.request(fetchUrl, { method: 'POST' });
+      if (fetchResult.status < 200 || fetchResult.status >= 300) {
+        return { status: fetchResult.status, data: null };
+      }
+    }
+    const url = this.articleUrl(language, articleId, '');
+    const result = await this.request(url, { method: 'GET' });
+    return { status: result.status, data: result.data };
+  }
+
+  private articleUrl(
+    language: string,
+    articleId: string,
+    suffix: string,
+  ): URL {
+    const base = this.configuredUrl();
+    base.pathname = base.pathname.replace(/\/articles\/top$/, '');
+    base.pathname = `${base.pathname}/articles/content/${language}/${articleId}${suffix}`;
+    base.search = '';
+    return base;
+  }
+
+  private apiKeyValue(): string {
+    const apiKey = process.env.WIKIFX_ARTICLES_API_KEY;
+    if (!apiKey) {
+      throw new WikifxClientError(
+        'WikiFX articles API is not configured',
+        undefined,
+        null,
+        'config',
+      );
+    }
+    return apiKey;
+  }
+
+  private configuredUrl(): URL {
+    this.apiKeyValue();
+    const url = new URL(
+      process.env.WIKIFX_ARTICLES_API_URL ?? WikifxClient.DEFAULT_URL,
+    );
+    const allowCustomUrl = process.env.WIKIFX_ALLOW_CUSTOM_URL === 'true';
+    // 开发/内网环境显式放行 http（默认仍强制 https，生产安全不变）。
+    const allowInsecureHttp = process.env.WIKIFX_ALLOW_INSECURE_HTTP === 'true';
+    if (
+      (allowInsecureHttp ? !['http:', 'https:'].includes(url.protocol) : url.protocol !== 'https:') ||
+      (!allowCustomUrl && url.hostname !== 'articles-api.chouai.cc.cd')
+    ) {
+      throw new WikifxClientError(
+        'WikiFX articles API URL is not allowed',
+        undefined,
+        null,
+        'config',
+      );
+    }
+    return url;
+  }
+
+  private async request(
+    url: URL,
+    init: { method: string },
+  ): Promise<{ status: number; data: unknown }> {
+    const apiKey = process.env.WIKIFX_ARTICLES_API_KEY ?? '';
+    const deadline = Date.now() + WikifxClient.TOTAL_TIMEOUT_MS;
+    for (let attempt = 0; attempt <= WikifxClient.RETRY_DELAYS_MS.length; attempt++) {
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) {
+        throw new WikifxClientError(
+          'WikiFX articles API timed out',
+          undefined,
+          null,
+          'timeout',
+        );
+      }
+      let response: Response;
+      try {
+        response = await fetch(url, {
+          method: init.method,
+          headers: { Authorization: `Bearer ${apiKey}` },
+          signal: AbortSignal.timeout(remaining),
+        });
+      } catch (error) {
+        const timedOut =
+          error instanceof Error &&
+          (error.name === 'TimeoutError' || error.name === 'AbortError');
+        const message = timedOut
+          ? 'WikiFX articles API timed out'
+          : 'WikiFX articles API request failed';
+        this.logFailure(undefined, null, message);
+        if (attempt < WikifxClient.RETRY_DELAYS_MS.length) {
+          const delay = WikifxClient.RETRY_DELAYS_MS[attempt];
+          if (Date.now() + delay < deadline) {
+            await this.sleep(delay);
+            continue;
+          }
+        }
+        throw new WikifxClientError(
+          message,
+          undefined,
+          null,
+          timedOut ? 'timeout' : 'network',
+        );
+      }
+      const requestId = response.headers.get('x-request-id');
+      if (response.ok) {
+        let data: unknown = null;
+        try {
+          data = await response.json();
+        } catch {
+          // 无 body 时保持 null
+        }
+        return { status: response.status, data };
+      }
+      const message = `WikiFX articles API returned ${response.status}`;
+      this.logFailure(response.status, requestId, message);
+      if (
+        WikifxClient.RETRYABLE_STATUSES.has(response.status) &&
+        attempt < WikifxClient.RETRY_DELAYS_MS.length
+      ) {
+        const delay = this.retryDelay(response, attempt);
+        if (Date.now() + delay < deadline) {
+          await this.sleep(delay);
+          continue;
+        }
+      }
+      throw new WikifxClientError(message, response.status, requestId);
+    }
     throw new WikifxClientError('WikiFX articles API request failed');
   }
 
