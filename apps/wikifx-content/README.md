@@ -15,7 +15,7 @@ WIKIFX_CONTENT_API_KEY=$(openssl rand -hex 32) \
   python3.12 -m uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
-数据库默认为 `data/wikifx.db`。生产必须把 `/app/data` 挂载到持久化 volume，否则重新部署会丢失已抓取正文；SQLite sidecar 保持单实例，不要横向扩容到多个副本。
+数据库默认为 `data/wikifx.db`。生产必须把 `/app/data` 挂载到持久化 volume，否则重新部署会丢失已抓取正文；SQLite sidecar 保持单实例，不要横向扩容到多个副本。Railway volume 默认可能是 root-owned，Railway 服务需设置 `RAILWAY_RUN_UID=0`（部署脚本已设置）以确保缓存可写。
 
 Railway 上不要为此服务配置 public domain；只通过 Railway private networking 让 `api` 访问它。API key 是第二层保护，不应替代网络隔离。
 

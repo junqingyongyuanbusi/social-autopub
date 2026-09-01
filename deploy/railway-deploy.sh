@@ -27,6 +27,7 @@ railway volume --service wikifx-content add --mount-path /app/data
 railway variables --service wikifx-content \
   --set "WIKIFX_CONTENT_API_KEY=${CONTENT_KEY}" \
   --set "WIKIFX_CONTENT_DATA_DIR=/app/data" \
+  --set "RAILWAY_RUN_UID=0" \
   --set "PORT=8000"
 railway up "$ROOT/apps/wikifx-content" --path-as-root --service wikifx-content --detach
 
