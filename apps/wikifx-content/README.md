@@ -25,7 +25,7 @@ Railway 上不要为此服务配置 public domain；只通过 Railway private ne
 Authorization: Bearer <WIKIFX_CONTENT_API_KEY>
 ```
 
-`/healthz` 和 `/api/health` 不需要鉴权，但会在 API key 或抓取依赖缺失时返回 HTTP 503。
+`/healthz` 和 `/api/health` 默认可匿名探活，会在 API key 或抓取依赖缺失时返回 HTTP 503；若请求带有 `Authorization`，sidecar 会校验它，供 api 健康检查验证共享 key。
 
 ## 兼容接口
 

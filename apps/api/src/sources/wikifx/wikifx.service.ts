@@ -534,7 +534,9 @@ export class WikifxService {
     if (!value) return null;
     try {
       const url = new URL(value);
-      return url.protocol === 'http:' || url.protocol === 'https:'
+      return (url.protocol === 'http:' || url.protocol === 'https:') &&
+        !url.username &&
+        !url.password
         ? url.toString()
         : null;
     } catch {

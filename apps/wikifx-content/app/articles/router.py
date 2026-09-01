@@ -65,7 +65,11 @@ def require_content_api_key(
             "Article content service is not configured",
         )
     prefix = "Bearer "
-    supplied = authorization[len(prefix) :].strip() if authorization else ""
+    supplied = (
+        authorization[len(prefix) :].strip()
+        if authorization and authorization.startswith(prefix)
+        else ""
+    )
     if not supplied or not hmac.compare_digest(supplied, expected):
         raise _error(401, "content_api_unauthorized", "Invalid article content credentials")
 

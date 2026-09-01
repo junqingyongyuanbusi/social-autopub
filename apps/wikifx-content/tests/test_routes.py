@@ -21,6 +21,21 @@ def test_health_reports_missing_fetch_dependency(monkeypatch, tmp_path) -> None:
     assert response.json()["content_api_key_configured"] is False
 
 
+def test_health_validates_an_optional_supplied_bearer_key(monkeypatch, tmp_path) -> None:
+    _configure(monkeypatch, tmp_path)
+    with TestClient(app) as client:
+        invalid = client.get(
+            "/healthz", headers={"Authorization": "Bearer wrong-key"}
+        )
+        valid = client.get(
+            "/healthz", headers={"Authorization": "Bearer test-content-key"}
+        )
+    assert invalid.status_code == 401
+    assert invalid.json()["detail"]["code"] == "content_api_unauthorized"
+    assert valid.status_code == 200
+    assert valid.json()["ok"] is True
+
+
 def test_sidecar_requires_internal_bearer_key(monkeypatch, tmp_path) -> None:
     _configure(monkeypatch, tmp_path)
     with TestClient(app) as client:

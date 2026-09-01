@@ -4,12 +4,15 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Header
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 
 from app import config, db
-from app.articles.router import router as articles_router
+from app.articles.router import (
+    require_content_api_key,
+    router as articles_router,
+)
 
 
 @asynccontextmanager
@@ -71,7 +74,14 @@ def _health_payload() -> dict:
 
 @app.get("/api/health")
 @app.get("/healthz")
-def health():
+def health(
+    authorization: str | None = Header(default=None, alias="Authorization"),
+):
+    # Keep anonymous probes available for Railway/Docker, but validate the
+    # header when the NestJS API supplies one so a wrong shared key cannot make
+    # the API report a falsely healthy sidecar.
+    if authorization is not None:
+        require_content_api_key(authorization)
     payload = _health_payload()
     if not payload["ok"]:
         # Keep the diagnostic fields at the top level so Railway/Docker probes
