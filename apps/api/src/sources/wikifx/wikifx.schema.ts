@@ -74,10 +74,47 @@ export const wikifxArticleDetailSchema = z
     content: z.string().nullable().optional(),
     content_chars: z.number().nullable().optional(),
     published_date: z.string().nullable().optional(),
+    published_date_source: z.string().nullable().optional(),
+    extract_method: z.string().nullable().optional(),
     status: z.string().nullable().optional(),
+    http_status: z.number().nullable().optional(),
     error_code: z.string().nullable().optional(),
+    attempt_count: z.number().nullable().optional(),
+    first_fetched_at: z.string().nullable().optional(),
+    fetched_at: z.string().nullable().optional(),
+    succeeded_at: z.string().nullable().optional(),
   })
   .passthrough();
+
+/** Response returned by POST /api/articles/content/resolve. */
+export const wikifxContentResolvedSchema = z
+  .object({
+    language: z.string(),
+    article_id: z.string(),
+    url: z.string().nullable().optional(),
+    title: z.string().nullable().optional(),
+    summary: z.string().nullable().optional(),
+    first_image_url: z.string().nullable().optional(),
+    content: z.string().nullable().optional(),
+    content_chars: z.number().nullable().optional(),
+    published_date: z.string().nullable().optional(),
+    published_date_source: z.string().nullable().optional(),
+    extract_method: z.string().nullable().optional(),
+    status: z.string().nullable().optional(),
+    http_status: z.number().nullable().optional(),
+    error_code: z.string().nullable().optional(),
+    attempt_count: z.number().nullable().optional(),
+    first_fetched_at: z.string().nullable().optional(),
+    fetched_at: z.string().nullable().optional(),
+    succeeded_at: z.string().nullable().optional(),
+    content_status: z.string().nullable().optional(),
+    content_message: z.string().nullable().optional(),
+  })
+  .passthrough();
+
+export const wikifxContentResolveResponseSchema = z.object({
+  items: z.array(wikifxContentResolvedSchema),
+});
 
 export type WikifxArticle = z.infer<typeof wikifxArticleSchema>;
 export type WikifxTopResponse = z.infer<typeof wikifxTopResponseSchema>;

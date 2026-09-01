@@ -33,6 +33,23 @@ services:
       timeout: 5s
       retries: 5
 
+  wikifx-content:
+    build:
+      context: ./apps/wikifx-content
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      PORT: "8000"
+      WIKIFX_CONTENT_API_KEY: ${WIKIFX_CONTENT_API_KEY}
+      WIKIFX_CONTENT_DATA_DIR: /app/data
+    volumes:
+      - wikifxcontentdata:/app/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=4)"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
   api:
     build:
       context: .
@@ -48,6 +65,9 @@ services:
       WIKIFX_ARTICLES_API_URL: ${WIKIFX_ARTICLES_API_URL:-https://articles-api.chouai.cc.cd/api/v1/public/wikifx/articles/top}
       WIKIFX_ALLOW_CUSTOM_URL: ${WIKIFX_ALLOW_CUSTOM_URL:-false}
       WIKIFX_ALLOW_INSECURE_HTTP: ${WIKIFX_ALLOW_INSECURE_HTTP:-false}
+      WIKIFX_CONTENT_API_URL: ${WIKIFX_CONTENT_API_URL:-http://wikifx-content:8000}
+      WIKIFX_CONTENT_API_KEY: ${WIKIFX_CONTENT_API_KEY}
+      WIKIFX_CONTENT_ALLOW_INSECURE_HTTP: ${WIKIFX_CONTENT_ALLOW_INSECURE_HTTP:-true}
       LLM_PROVIDER: ${LLM_PROVIDER:-openrouter}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
       GENERATION_MODEL: ${GENERATION_MODEL:-anthropic/claude-sonnet-4.5}
@@ -67,6 +87,8 @@ services:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      wikifx-content:
         condition: service_healthy
     # ---- 内网模式：api 不给宿主机/公网暴露任何端口，只存在于 Docker 内网 -----
     # console 经 API_INTERNAL_URL=http://api:3000 走内网关调；如确需外部使用
@@ -116,4 +138,5 @@ services:
 volumes:
   pgdata:
   redisdata:
+  wikifxcontentdata:
   # caddydata:

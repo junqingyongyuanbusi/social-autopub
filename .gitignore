@@ -1,6 +1,9 @@
 node_modules/
 dist/
 .next/
+**/__pycache__/
+**/.pytest_cache/
+*.pyc
 
 .env
 .env.*

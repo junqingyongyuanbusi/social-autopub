@@ -9,5 +9,6 @@ import { WikifxService } from './wikifx.service';
   imports: [IngestModule, RedisModule],
   controllers: [WikifxController],
   providers: [WikifxClient, WikifxService],
+  exports: [WikifxClient],
 })
 export class WikifxModule {}

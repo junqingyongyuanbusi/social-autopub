@@ -18,6 +18,7 @@ import {
   WikifxClient,
   WikifxClientError,
   WikifxClientResult,
+  WikifxContentResolved,
   WikifxUpstreamMetadata,
 } from './wikifx.client';
 import { parseWikiFXArticleUrl } from './wikifx-url';
@@ -34,6 +35,17 @@ interface CacheEntry {
   data: WikifxTopResponse;
   metadata: WikifxUpstreamMetadata;
 }
+
+const FAILED_CONTENT_STATES = new Set([
+  'empty',
+  'not_found',
+  'blocked',
+  'timeout',
+  'error',
+  'fetch_failed',
+  'not_fetched',
+  'content_not_fetched',
+]);
 
 export interface WikifxManualArticle {
   language: string;
@@ -74,12 +86,16 @@ export class WikifxService {
   async topics(user: RequestUser, days: number, top: number) {
     const result = await this.trustedFetch(days, top);
     const visibleLanguages = await this.access.visibleLanguages(user);
-    const articles =
+    const visibleArticles =
       visibleLanguages === null
         ? result.data.items
         : result.data.items.filter((item) =>
             visibleLanguages.includes(item.language),
           );
+    // The public ranking endpoint is intentionally separate from article
+    // content.  Fill missing bodies from the migrated sidecar, while keeping
+    // ranking/cache metadata owned by the trusted top response.
+    const articles = await this.enrichTopicContents(visibleArticles);
     const adoptions = await this.findAdoptions(articles);
 
     return {
@@ -114,12 +130,13 @@ export class WikifxService {
       }
     } else {
       const result = await this.trustedFetch(input.days ?? 3, 1);
-      article =
-        result.data.items.find(
-          (item) =>
-            item.article_id === input.article_id &&
-            item.language === input.language,
-        ) ?? null;
+      const candidates = result.data.items.filter(
+        (item) =>
+          item.article_id === input.article_id &&
+          item.language === input.language,
+      );
+      const articles = await this.enrichTopicContents(candidates);
+      article = articles[0] ?? null;
     }
     if (!article) {
       throw new ConflictException(
@@ -130,7 +147,7 @@ export class WikifxService {
     }
 
     const body = article.content?.trim();
-    if (!body) {
+    if (!body || this.isFailedContentState(article.content_status)) {
       throw new UnprocessableEntityException(
         'WikiFX article content is unavailable',
       );
@@ -196,6 +213,12 @@ export class WikifxService {
       if (error instanceof WikifxClientError && error.kind === 'timeout') {
         throw new GatewayTimeoutException(error.message);
       }
+      if (
+        error instanceof WikifxClientError &&
+        (error.status === 401 || error.status === 503)
+      ) {
+        throw new ServiceUnavailableException('WikiFX 正文服务暂不可用');
+      }
       throw new BadGatewayException(
         error instanceof Error
           ? error.message
@@ -208,11 +231,19 @@ export class WikifxService {
         this.detailFailureMessage(status, detail),
       );
     }
+    // The sidecar preserves an old body for diagnostics when a later attempt
+    // fails.  It must not be treated as a successful fresh result solely
+    // because the JSON still contains `content`.
+    if (detail.status && detail.status !== 'ok') {
+      throw new UnprocessableEntityException(
+        this.detailFailureMessage(status, detail),
+      );
+    }
     const content = detail.content?.trim() ?? '';
     if (!content) {
       throw new UnprocessableEntityException(
         force
-          ? '已触发抓取但未获取到正文，请稍后重试或换一篇'
+          ? this.detailFailureMessage(status, detail)
           : '正文尚未抓取，请选择“强制抓取”后再试',
       );
     }
@@ -229,6 +260,89 @@ export class WikifxService {
     };
     await this.writeManualCache(manual);
     return this.manualResponse(manual, 'upstream');
+  }
+
+  private async enrichTopicContents(
+    articles: WikifxArticle[],
+  ): Promise<WikifxArticle[]> {
+    const missing = articles.filter(
+      (article) =>
+        !this.hasUsableTopicContent(article) ||
+        !article.first_image_url?.trim(),
+    );
+    if (!missing.length) return articles;
+
+    // Keep compatibility with lightweight test doubles and older callers while
+    // the sidecar rollout is staged.  Production always uses the real method.
+    if (typeof this.client.resolveArticles !== 'function') return articles;
+
+    let resolved: WikifxContentResolved[];
+    try {
+      resolved = await this.client.resolveArticles(
+        missing.map((article) => ({
+          language: article.language,
+          article_id: article.article_id,
+          article_url: article.article_url,
+        })),
+      );
+    } catch (error) {
+      const message = this.contentServiceFailureMessage(error);
+      return articles.map((article) =>
+        this.hasUsableTopicContent(article)
+          ? article
+          : {
+              ...article,
+              content_status: 'fetch_failed',
+              content_message: message,
+            },
+      );
+    }
+
+    const byKey = new Map(
+      resolved.map((row) => [`${row.language}:${row.article_id}`, row]),
+    );
+    return articles.flatMap((article) => {
+      const row = byKey.get(`${article.language}:${article.article_id}`);
+      if (!row) return [article];
+
+      // A confirmed upstream 404 is not a usable topic.  Other failures remain
+      // visible with their structured state so operators can distinguish an
+      // empty extraction, a block, a timeout, and a missing article.
+      if (row.status === 'not_found' || row.error_code === 'not_found') {
+        return [];
+      }
+      return [
+        {
+          ...article,
+          article_title: row.title?.trim() || article.article_title,
+          article_url: row.url || article.article_url,
+          content: row.content ?? null,
+          first_image_url: row.first_image_url ?? article.first_image_url,
+          content_status:
+            row.content_status ?? row.status ?? article.content_status ?? null,
+          content_message: row.content_message ?? row.error_code ?? null,
+        },
+      ];
+    });
+  }
+
+  private hasUsableTopicContent(article: Pick<WikifxArticle, 'content' | 'content_status'>) {
+    return Boolean(
+      article.content?.trim() &&
+        !this.isFailedContentState(article.content_status),
+    );
+  }
+
+  private isFailedContentState(value: string | null | undefined) {
+    return Boolean(value && FAILED_CONTENT_STATES.has(value));
+  }
+
+  private contentServiceFailureMessage(error: unknown): string {
+    if (error instanceof WikifxClientError) {
+      if (error.kind === 'config') return '正文服务未配置';
+      if (error.kind === 'timeout') return '正文服务抓取超时，请稍后重试';
+    }
+    return '正文服务暂不可用，请稍后重试';
   }
 
   private async trustedFetch(days: number, top: number): Promise<TrustedResult> {
@@ -327,9 +441,20 @@ export class WikifxService {
   }
 
   private detailFailureMessage(status: number, detail: WikifxArticleDetail | null) {
-    if (status === 404) return '该文章不在正文库中，请选择“强制抓取”后再试';
-    if (detail?.error_code === 'not_found') return '原文已下架或不存在';
-    if (detail?.error_code === 'blocked') return '目标站拦截了抓取，请稍后再试';
+    if (status === 404) return '该文章不在正文库中（可能尚未抓取），请选择“强制抓取”后再试';
+    const state = detail?.status ?? detail?.error_code;
+    if (state === 'not_found' || detail?.error_code === 'not_found') {
+      return '原文已下架或不存在';
+    }
+    if (state === 'blocked' || detail?.error_code === 'blocked') {
+      return '目标站拦截了抓取，请稍后再试';
+    }
+    if (state === 'timeout' || detail?.error_code === 'timeout') {
+      return '抓取上游超时，请稍后重试';
+    }
+    if (state === 'empty' || detail?.error_code === 'empty_content') {
+      return '已抓取页面，但未抽取到正文，请稍后重试或换一篇';
+    }
     if (detail?.error_code) return `抓取未成功：${detail.error_code}`;
     return '单篇正文读取失败，请稍后重试';
   }

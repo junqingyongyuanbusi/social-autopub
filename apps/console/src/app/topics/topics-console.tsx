@@ -236,11 +236,33 @@ function ManualFetchCard() {
   );
 }
 
+const FAILED_CONTENT_STATES = new Set([
+  "empty",
+  "not_found",
+  "blocked",
+  "timeout",
+  "error",
+  "fetch_failed",
+  "not_fetched",
+  "content_not_fetched",
+]);
+
 function contentState(topic: WikiFxTopic) {
+  if (topic.content_status && FAILED_CONTENT_STATES.has(topic.content_status)) {
+    if (topic.content_message?.trim()) return topic.content_message;
+    return topic.content_status;
+  }
   if (topic.content?.trim()) return "正文可用";
   if (topic.content_message?.trim()) return topic.content_message;
   if (topic.content_status?.trim()) return topic.content_status;
   return "正文不可用";
+}
+
+function hasUsableContent(topic: Pick<WikiFxTopic, "content" | "content_status">) {
+  return Boolean(
+    topic.content?.trim() &&
+      !(topic.content_status && FAILED_CONTENT_STATES.has(topic.content_status)),
+  );
 }
 
 export function TopicsConsole(
@@ -289,7 +311,7 @@ export function TopicsConsole(
   }, [adoption, country, data.items, keyword, language]);
 
   const adopt = async (topic: WikiFxTopic) => {
-    if (topic.adoption || !topic.content?.trim() || busyId) return;
+    if (topic.adoption || !hasUsableContent(topic) || busyId) return;
     setBusyId(topic.id);
     setNotice(null);
     try {
@@ -541,7 +563,7 @@ export function TopicsConsole(
                     </td>
                     <td className="px-4 py-3 text-xs">
                       <div
-                        className={topic.content?.trim()
+                        className={hasUsableContent(topic)
                           ? "text-success"
                           : "text-warning"}
                       >
@@ -595,15 +617,15 @@ export function TopicsConsole(
                             <button
                               type="button"
                               onClick={() => adopt(topic)}
-                              disabled={busyId !== "" || !topic.content?.trim()}
-                              title={!topic.content?.trim()
+                              disabled={busyId !== "" || !hasUsableContent(topic)}
+                              title={!hasUsableContent(topic)
                                 ? "正文不可用，暂时不能采用"
                                 : undefined}
                               className="inline-flex min-h-10 items-center rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground active:scale-[0.98] hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 disabled:cursor-not-allowed disabled:opacity-50"
                             >
                               {busyId === topic.id
                                 ? "采用中…"
-                                : topic.content?.trim()
+                                : hasUsableContent(topic)
                                 ? "采用选题"
                                 : "正文不可用"}
                             </button>
@@ -618,7 +640,9 @@ export function TopicsConsole(
                             dir="auto"
                             className="whitespace-pre-wrap break-words"
                           >
-                            {topic.content?.trim() || contentState(topic)}
+                            {hasUsableContent(topic)
+                              ? topic.content
+                              : contentState(topic)}
                           </p>
                           <div className="flex flex-wrap gap-x-3 gap-y-1 text-muted-foreground tabular-nums" aria-label="详细热度指标">
                             <span>浏览 {formatMetric(topic.view_count)}</span>

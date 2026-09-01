@@ -10,6 +10,7 @@ function makeService(overrides: Record<string, unknown> = {}) {
   const client: {
     fetchTop: () => Promise<Record<string, unknown>>;
     fetchArticle: (l: string, id: string, o?: { force?: boolean }) => FetchArticleResult;
+    resolveArticles: (items: unknown[]) => Promise<unknown[]>;
   } = {
     fetchTop: async () => ({
       data: {
@@ -24,6 +25,7 @@ function makeService(overrides: Record<string, unknown> = {}) {
       metadata: { wikifxCache: null, age: null, requestId: null },
     }),
     fetchArticle: async (): FetchArticleResult => ({ status: 404, data: null }),
+    resolveArticles: async () => [],
     ...(overrides.client ?? {}),
   };
   const prisma = overrides.prisma ?? {};
@@ -278,4 +280,151 @@ test('adopt without manual falls back to trusted topic result', async () => {
     language: 'ja',
   });
   assert.equal(result.status, 'REVIEW');
+});
+
+test('topics enriches missing bodies through the content sidecar and omits confirmed 404s', async () => {
+  const resolvedCalls: unknown[] = [];
+  const { service } = makeService({
+    client: {
+      fetchTop: async () => ({
+        data: {
+          statistics_start: '2026-08-28',
+          statistics_end: '2026-08-30',
+          days: 3,
+          top: 1,
+          property_id: 'p',
+          data_quality: { sampled: false, data_loss_from_other_row: false, skipped_rows: 0 },
+          items: [
+            {
+              article_id: '202608274774520712',
+              language: 'en',
+              article_url: 'https://www.wikifx.com/en/newsdetail/202608274774520712.html',
+              article_title: 'Tattvam Review',
+              content: null,
+              first_image_url: null,
+              content_country: null,
+              content_region: null,
+              view_count: 10,
+              active_users: 2,
+              avg_engagement_seconds: 3,
+            },
+            {
+              article_id: '202608274774520713',
+              language: 'en',
+              article_url: 'https://www.wikifx.com/en/newsdetail/202608274774520713.html',
+              article_title: 'Removed',
+              content: null,
+              first_image_url: null,
+              content_country: null,
+              content_region: null,
+              view_count: 9,
+              active_users: 2,
+              avg_engagement_seconds: 3,
+            },
+          ],
+        },
+        metadata: { wikifxCache: null, age: null, requestId: null },
+      }),
+      resolveArticles: async (items: unknown[]) => {
+        resolvedCalls.push(items);
+        return [
+          {
+            language: 'en',
+            article_id: '202608274774520712',
+            title: 'Tattvam Review 2026',
+            content: '抓取后的正文',
+            first_image_url: 'https://cdn.example.com/cover.jpg',
+            status: 'ok',
+            content_status: 'fetched',
+          },
+          {
+            language: 'en',
+            article_id: '202608274774520713',
+            status: 'not_found',
+            error_code: 'not_found',
+          },
+        ];
+      },
+    },
+    prisma: { contentItem: { findMany: async () => [] } },
+  });
+
+  const result = await service.topics(user, 3, 1);
+  assert.equal(result.items.length, 1);
+  assert.equal(result.items[0].content, '抓取后的正文');
+  assert.equal(result.items[0].title, 'Tattvam Review 2026');
+  assert.equal(resolvedCalls.length, 1);
+});
+
+test('non-manual adoption resolves missing body from the content sidecar', async () => {
+  const { service, ingest, client } = makeService({
+    client: {
+      fetchTop: async () => ({
+        data: {
+          statistics_start: '2026-08-28',
+          statistics_end: '2026-08-30',
+          days: 3,
+          top: 1,
+          property_id: 'p',
+          data_quality: { sampled: false, data_loss_from_other_row: false, skipped_rows: 0 },
+          items: [
+            {
+              article_id: '202608274774520712',
+              language: 'en',
+              article_url: 'https://www.wikifx.com/en/newsdetail/202608274774520712.html',
+              article_title: '榜单标题',
+              content: null,
+              first_image_url: null,
+              content_country: null,
+              content_region: null,
+              view_count: 1,
+              active_users: 1,
+              avg_engagement_seconds: 1,
+            },
+          ],
+        },
+        metadata: { wikifxCache: null, age: null, requestId: null },
+      }),
+      resolveArticles: async () => [
+        {
+          language: 'en',
+          article_id: '202608274774520712',
+          title: 'sidecar title',
+          content: 'sidecar body',
+          status: 'ok',
+          content_status: 'fetched',
+        },
+      ],
+    },
+  });
+  const result = await service.adopt(user, {
+    article_id: '202608274774520712',
+    language: 'en',
+  });
+  assert.equal(result.status, 'REVIEW');
+  assert.equal(ingest.upsertCalls[0].payload.body, 'sidecar body');
+  assert.equal(typeof client.resolveArticles, 'function');
+});
+
+test('manual fetch does not accept preserved stale content when sidecar latest status failed', async () => {
+  const { service, client } = makeService();
+  client.fetchArticle = async () => ({
+    status: 200,
+    data: {
+      ...detailOk,
+      content: '旧正文仍被 sidecar 保留用于诊断',
+      status: 'blocked',
+      error_code: 'blocked',
+    },
+  });
+  await assert.rejects(
+    () =>
+      service.fetchByUrl(
+        user,
+        'https://www.wikifx.com/ja/newsdetail/202608202624732011.html',
+        true,
+      ),
+    (error: unknown) =>
+      error instanceof UnprocessableEntityException && /拦截/.test(String(error.message)),
+  );
 });
