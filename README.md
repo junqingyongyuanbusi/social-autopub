@@ -63,7 +63,7 @@ docker compose up -d --build
 `dev` 分支，`DRY_RUN=true`：
 1. Postiz：官方 Railway 模板（锁 v2.11.3、避开 Temporal），配 `MAIN_URL/FRONTEND_URL/NEXT_PUBLIC_BACKEND_URL`，管理员后置 `DISABLE_REGISTRATION=true`，配好各账号 OAuth 与 API Key
 2. 本仓库推 GitHub → Railway 建项目：Postgres + Redis 插件，再建三个服务
-   - `wikifx-content`：Root `apps/wikifx-content`，使用目录内 Dockerfile；绑定持久化 volume 到 `/app/data`（`deploy/railway-deploy.sh` 会创建）
+   - `wikifx-content`：Root `apps/wikifx-content`，使用目录内 Dockerfile；绑定持久化 volume 到 `/app/data`（`deploy/railway-deploy.sh` 会创建，并设置 `RAILWAY_RUN_UID=0`）
    - `api`：Root `apps/api`，Build `pnpm install && pnpm build`，Start `pnpm start`
    - `console`：Root `apps/console`，Build `pnpm install && pnpm build`，Start `pnpm start`
 3. 在 `wikifx-content` 与 `api` 服务设置相同的随机 `WIKIFX_CONTENT_API_KEY`；api 的 `WIKIFX_CONTENT_API_URL` 填 sidecar private URL（HTTP private URL 同时设 `WIKIFX_CONTENT_ALLOW_INSECURE_HTTP=true`）。环境变量按 `.env.example` 配置；staging 保持 `DRY_RUN=true`
