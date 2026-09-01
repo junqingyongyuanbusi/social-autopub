@@ -155,13 +155,21 @@ export class WikifxClient {
   ): Promise<{ status: number; data: unknown }> {
     if (options.force) {
       const fetchUrl = this.articleUrl(language, articleId, '/fetch');
-      const fetchResult = await this.request(fetchUrl, { method: 'POST' });
+      const fetchResult = await this.request(
+        fetchUrl,
+        { method: 'POST' },
+        { allowNotFound: true },
+      );
       if (fetchResult.status < 200 || fetchResult.status >= 300) {
         return { status: fetchResult.status, data: null };
       }
     }
     const url = this.articleUrl(language, articleId, '');
-    const result = await this.request(url, { method: 'GET' });
+    const result = await this.request(
+      url,
+      { method: 'GET' },
+      { allowNotFound: true },
+    );
     return { status: result.status, data: result.data };
   }
 
@@ -215,6 +223,7 @@ export class WikifxClient {
   private async request(
     url: URL,
     init: { method: string },
+    options: { allowNotFound?: boolean } = {},
   ): Promise<{ status: number; data: unknown }> {
     const apiKey = process.env.WIKIFX_ARTICLES_API_KEY ?? '';
     const deadline = Date.now() + WikifxClient.TOTAL_TIMEOUT_MS;
@@ -259,6 +268,15 @@ export class WikifxClient {
       }
       const requestId = response.headers.get('x-request-id');
       if (response.ok) {
+        let data: unknown = null;
+        try {
+          data = await response.json();
+        } catch {
+          // 无 body 时保持 null
+        }
+        return { status: response.status, data };
+      }
+      if (response.status === 404 && options.allowNotFound) {
         let data: unknown = null;
         try {
           data = await response.json();
