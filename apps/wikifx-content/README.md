@@ -37,7 +37,7 @@ Authorization: Bearer <WIKIFX_CONTENT_API_KEY>
 | `POST` | `/api/articles/content/index` | 批量读取元信息，不返回正文 |
 | `GET` | `/api/articles/content/records` | 正文库状态统计与分页明细 |
 
-状态值：`ok`、`empty`、`not_found`、`blocked`、`timeout`、`error`。不要仅依据 HTTP 404 判断原文不存在：GET 的 404 也可能只是尚未抓取（`content_not_fetched`）。
+数据库状态值：`ok`、`empty`、`not_found`、`blocked`、`timeout`、`error`；`resolve` 另用 `content_status=stored|fetched|fetch_failed` 表示本次返回来源。不要仅依据 HTTP 404 判断原文不存在：GET 的 404 也可能只是尚未抓取（`content_not_fetched`）。
 
 ## 配置
 
