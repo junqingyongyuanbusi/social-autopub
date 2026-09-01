@@ -140,6 +140,27 @@ def _detail_or_404(language: str, article_id: str) -> dict:
     return row
 
 
+def _fetch_with_extension_fallback(
+    fetcher: ArticleFetcher, target: tuple[str, str, str]
+) -> dict:
+    """Try the alternate WikiFX article suffix after a confirmed 404."""
+    language, article_id, supplied_url = target
+    row = fetch_article_row(fetcher, target)
+    if row.get("status") != "not_found":
+        return row
+
+    # The ranking payload has historically contained both .html and .htm
+    # links.  Keep the supplied URL first, then try the fixed official forms;
+    # ArticleFetcher itself handles the www/aws-www host fallback.
+    for candidate in _canonical_candidates(language, article_id):
+        if candidate == supplied_url:
+            continue
+        row = fetch_article_row(fetcher, (language, article_id, candidate))
+        if row.get("status") != "not_found":
+            break
+    return row
+
+
 # Fixed paths must be declared before /content/{language}/{article_id}; otherwise
 # a framework upgrade could make "index" or "records" look like a language.
 @router.post("/content/index", response_model=ArticleContentIndexResponse)
@@ -247,7 +268,10 @@ def resolve_article_contents(
                     max_workers=min(MAX_RESOLVE_WORKERS, len(pending))
                 ) as pool:
                     fetched_rows = list(
-                        pool.map(lambda target: fetch_article_row(fetcher, target), pending)
+                        pool.map(
+                            lambda target: _fetch_with_extension_fallback(fetcher, target),
+                            pending,
+                        )
                     )
             except ContentDependencyMissing:
                 raise _error(

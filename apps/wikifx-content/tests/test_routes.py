@@ -134,6 +134,59 @@ def test_resolve_uses_persisted_body_without_refetching(monkeypatch, tmp_path) -
     assert response.json()["items"][0]["content_status"] == "stored"
 
 
+def test_resolve_tries_alternate_extension_after_not_found(monkeypatch, tmp_path) -> None:
+    _configure(monkeypatch, tmp_path)
+    calls = []
+
+    def fake_fetch(fetcher, target):
+        calls.append(target[2])
+        if target[2].endswith(".htm"):
+            return {
+                "language": "en",
+                "article_id": ARTICLE_ID,
+                "url": target[2],
+                "status": "not_found",
+                "error_code": "not_found",
+                "first_image_checked": 1,
+                "fetched_at": db.now_iso(),
+            }
+        return {
+            "language": "en",
+            "article_id": ARTICLE_ID,
+            "url": target[2],
+            "title": "Recovered article",
+            "content": "recovered body",
+            "content_chars": 14,
+            "first_image_checked": 1,
+            "status": "ok",
+            "http_status": 200,
+            "fetched_at": db.now_iso(),
+            "succeeded_at": db.now_iso(),
+        }
+
+    monkeypatch.setattr(article_router, "fetch_article_row", fake_fetch)
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/articles/content/resolve",
+            headers={"Authorization": "Bearer test-content-key"},
+            json={
+                "items": [
+                    {
+                        "language": "en",
+                        "article_id": ARTICLE_ID,
+                        "article_url": ARTICLE_URL.replace(".html", ".htm"),
+                    }
+                ]
+            },
+        )
+    assert response.status_code == 200
+    assert response.json()["items"][0]["status"] == "ok"
+    assert calls == [
+        f"https://www.wikifx.com/en/newsdetail/{ARTICLE_ID}.htm",
+        f"https://www.wikifx.com/en/newsdetail/{ARTICLE_ID}.html",
+    ]
+
+
 def test_force_fetch_tries_alternate_extension_after_not_found(monkeypatch, tmp_path) -> None:
     _configure(monkeypatch, tmp_path)
     calls = []

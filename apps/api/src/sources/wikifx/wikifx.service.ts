@@ -311,7 +311,20 @@ export class WikifxService {
     );
     return articles.flatMap((article) => {
       const row = byKey.get(`${article.language}:${article.article_id}`);
-      if (!row) return [article];
+      if (!row) {
+        // The client deliberately drops malformed ranking URLs instead of
+        // forwarding them.  Preserve the trusted row, but expose a structured
+        // failure rather than silently presenting a missing body as healthy.
+        return this.hasUsableTopicContent(article)
+          ? [article]
+          : [
+              {
+                ...article,
+                content_status: 'fetch_failed',
+                content_message: '正文服务未返回该文章',
+              },
+            ];
+      }
 
       // A confirmed upstream 404 is not a usable topic.  Other failures remain
       // visible with their structured state so operators can distinguish an
