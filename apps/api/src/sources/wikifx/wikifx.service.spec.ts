@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { ConflictException, UnprocessableEntityException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  UnprocessableEntityException,
+} from '@nestjs/common';
 import { WikifxService } from './wikifx.service';
 import { WikifxClientError } from './wikifx.client';
 
@@ -90,6 +94,21 @@ test('fetchByUrl rejects untrusted url before any upstream call', async () => {
     Error,
   );
   assert.equal(upstreamHits, 0);
+});
+
+test('fetchByUrl maps malformed URLs to a client error', async () => {
+  const { service } = makeService();
+  await assert.rejects(
+    () =>
+      service.fetchByUrl(
+        user,
+        'https://evil.example/en/newsdetail/202608202624732011.html',
+        false,
+      ),
+    (error: unknown) =>
+      error instanceof BadRequestException &&
+      /仅支持 WikiFX 官方文章链接/.test(String(error.message)),
+  );
 });
 
 test('fetchByUrl reads from cache when present and not forced', async () => {

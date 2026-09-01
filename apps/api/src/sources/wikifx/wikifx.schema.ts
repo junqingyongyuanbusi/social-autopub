@@ -6,7 +6,7 @@ const nullableNumber = z.number().finite().nonnegative().nullable().optional();
 const articleIdSchema = z
   .union([z.string(), z.number()])
   .transform((value) => String(value).trim())
-  .pipe(z.string().min(1));
+  .pipe(z.string().regex(/^\d{8,32}$/, 'article_id must be 8-32 digits'));
 const languageSchema = z.string().trim().toLowerCase().min(2).max(10);
 
 export const wikifxArticleSchema = z

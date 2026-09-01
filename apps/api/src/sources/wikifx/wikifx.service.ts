@@ -1,5 +1,6 @@
 import {
   BadGatewayException,
+  BadRequestException,
   ConflictException,
   GatewayTimeoutException,
   HttpException,
@@ -185,7 +186,14 @@ export class WikifxService {
    * 时按 force 决定是否触发上游强制抓取；结果短期缓存供采用时复用。
    */
   async fetchByUrl(user: RequestUser, url: string, force: boolean) {
-    const target = parseWikiFXArticleUrl(url);
+    let target: ReturnType<typeof parseWikiFXArticleUrl>;
+    try {
+      target = parseWikiFXArticleUrl(url);
+    } catch (error) {
+      throw new BadRequestException(
+        error instanceof Error ? error.message : '请输入有效的 WikiFX 文章链接',
+      );
+    }
     await this.access.assertPermission(user, target.language, 'canEdit');
 
     const cached = await this.readManualCache(target.language, target.articleId);
