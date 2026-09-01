@@ -11,13 +11,14 @@ import hmac
 import re
 import threading
 from concurrent.futures import ThreadPoolExecutor
-from datetime import date
+from datetime import date, datetime, timezone
 from typing import Literal
 from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 
 from app import config, db
+from app.articles.content_policy import should_fetch
 from app.articles.content_runner import fetch_article_row
 from app.articles.extract import ContentDependencyMissing
 from app.articles.fetcher import ArticleFetcher
@@ -199,21 +200,40 @@ def resolve_article_contents(
         return ArticleContentResolveResponse(items=[])
 
     # Keep first occurrence order while deduplicating the fetch work.
-    unique_targets = list(
-        {
-            (language, article_id): (language, article_id, article_url)
-            for language, article_id, article_url in targets
-        }.values()
-    )
+    unique_targets = []
+    seen_keys = set()
+    for target in targets:
+        key = (target[0], target[1])
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        unique_targets.append(target)
     keys = [(language, article_id) for language, article_id, _ in unique_targets]
 
     with _resolve_lock:
         before_rows = db.list_article_contents(keys)
         before = {(row["language"], row["article_id"]): row for row in before_rows}
+        states = db.get_article_content_states(keys)
+        now = datetime.now(timezone.utc)
         pending = []
         for target in unique_targets:
-            existing = before.get((target[0], target[1])) or {}
-            if not existing.get("content") or not existing.get("first_image_checked"):
+            key = (target[0], target[1])
+            existing = before.get(key) or {}
+            state = states.get(key)
+            # A successful row may still need its first-image probe.  All
+            # failed rows, including confirmed 404s, go through the shared
+            # cooldown/max-attempt policy; only POST /fetch bypasses it.
+            needs_image_probe = bool(existing.get("content")) and not bool(
+                existing.get("first_image_checked")
+            )
+            needs_body = not bool(existing.get("content"))
+            if needs_image_probe and state and state.get("status") == "ok":
+                pending.append(target)
+            elif needs_body and state and state.get("status") == "ok":
+                # Repair an inconsistent legacy row whose status says ok but
+                # whose body is missing.
+                pending.append(target)
+            elif should_fetch(state, now=now):
                 pending.append(target)
 
         if pending:
@@ -268,7 +288,10 @@ def resolve_article_contents(
         else:
             content_status = "fetch_failed"
             error_code = row.get("error_code") or row.get("status") or "unknown"
-            content_message = f"数据库中没有正文，实时抓取失败（{error_code}）"
+            if row.get("content"):
+                content_message = f"最新抓取失败，已保留历史正文（{error_code}）"
+            else:
+                content_message = f"数据库中没有正文，实时抓取失败（{error_code}）"
         resolved.append(
             ArticleContentResolved(
                 **row,
@@ -295,15 +318,22 @@ def fetch_single_content(language: str, article_id: str) -> ArticleContentDetail
     stored_url = (existing or {}).get("url")
 
     candidates: list[str]
+    canonical_candidates = _canonical_candidates(language, article_id)
     if stored_url:
         try:
-            candidates = [_validate_article_url(language, article_id, stored_url)]
+            stored_candidate = _validate_article_url(language, article_id, stored_url)
+            # Prefer the URL that previously worked, but retain the alternate
+            # extension/host candidates so a transient 404 can self-heal.
+            candidates = [
+                stored_candidate,
+                *[candidate for candidate in canonical_candidates if candidate != stored_candidate],
+            ]
         except HTTPException:
             # A legacy row may contain a URL written before URL validation was
             # introduced.  Never replay it; use the fixed official candidates.
-            candidates = _canonical_candidates(language, article_id)
+            candidates = canonical_candidates
     else:
-        candidates = _canonical_candidates(language, article_id)
+        candidates = canonical_candidates
 
     fetcher = ArticleFetcher()
     try:

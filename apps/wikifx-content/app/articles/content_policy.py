@@ -16,7 +16,7 @@ succeeded_at 非空的行拿到 404,几分钟后逐一探测两个域名全部 2
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
 
 
@@ -57,9 +57,12 @@ def _parse_timestamp(value: Any) -> Optional[datetime]:
     if not value:
         return None
     try:
-        return datetime.fromisoformat(str(value))
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
     except (TypeError, ValueError):
         return None
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone(timezone.utc).replace(tzinfo=None)
+    return parsed
 
 
 def should_fetch(
@@ -71,6 +74,9 @@ def should_fetch(
     """
     if force or row is None:
         return True
+
+    if now.tzinfo is not None:
+        now = now.astimezone(timezone.utc).replace(tzinfo=None)
 
     status = row.get("status")
     if status == STATUS_OK:

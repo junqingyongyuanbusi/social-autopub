@@ -121,6 +121,34 @@ test('fetchByUrl reads from cache when present and not forced', async () => {
   assert.equal(upstreamHits, 0);
 });
 
+test('fetchByUrl does not serve a cached failed content state', async () => {
+  const { service, client } = makeService({
+    redis: {
+      get: async () =>
+        JSON.stringify({
+          language: 'ja',
+          article_id: '202608202624732011',
+          title: 'old',
+          url: 'https://www.wikifx.com/ja/newsdetail/202608202624732011.html',
+          content: 'stale body',
+          first_image_url: null,
+          content_status: 'blocked',
+          content_message: 'blocked',
+        }),
+    },
+  });
+  client.fetchArticle = async () => ({ status: 404, data: null });
+  await assert.rejects(
+    () =>
+      service.fetchByUrl(
+        user,
+        'https://www.wikifx.com/ja/newsdetail/202608202624732011.html',
+        false,
+      ),
+    UnprocessableEntityException,
+  );
+});
+
 test('fetchByUrl with force ignores cache and stores upstream result', async () => {
   const cached = {
     language: 'ja',
@@ -181,6 +209,26 @@ test('fetchByUrl surfaces not-fetched and empty-content states', async () => {
         false,
       ),
     UnprocessableEntityException,
+  );
+});
+
+test('fetchByUrl rejects a sidecar response for a different article', async () => {
+  const { service, client } = makeService();
+  client.fetchArticle = async () => ({
+    status: 200,
+    data: {
+      ...detailOk,
+      article_id: '202608202624732012',
+    },
+  });
+  await assert.rejects(
+    () =>
+      service.fetchByUrl(
+        user,
+        'https://www.wikifx.com/ja/newsdetail/202608202624732011.html',
+        true,
+      ),
+    /mismatched article/,
   );
 });
 

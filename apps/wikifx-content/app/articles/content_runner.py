@@ -20,7 +20,7 @@ import threading
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Callable, Dict, List, Optional, Tuple
 
 from app import db
@@ -164,7 +164,7 @@ class ContentRunner:
         self._owns_fetcher = fetcher is None
         self._max_workers = max_workers
         self._chunk_size = chunk_size
-        self._clock = clock or datetime.now
+        self._clock = clock or (lambda: datetime.now(timezone.utc))
 
         self._lock = threading.Lock()
         self._snapshot = JobSnapshot()

@@ -231,6 +231,14 @@ export class WikifxService {
         this.detailFailureMessage(status, detail),
       );
     }
+    if (
+      detail.language !== target.language ||
+      detail.article_id !== target.articleId
+    ) {
+      throw new BadGatewayException(
+        'WikiFX article content service returned a mismatched article',
+      );
+    }
     // The sidecar preserves an old body for diagnostics when a later attempt
     // fails.  It must not be treated as a successful fresh result solely
     // because the JSON still contains `content`.
@@ -441,11 +449,11 @@ export class WikifxService {
   }
 
   private detailFailureMessage(status: number, detail: WikifxArticleDetail | null) {
-    if (status === 404) return '该文章不在正文库中（可能尚未抓取），请选择“强制抓取”后再试';
     const state = detail?.status ?? detail?.error_code;
     if (state === 'not_found' || detail?.error_code === 'not_found') {
       return '原文已下架或不存在';
     }
+    if (status === 404) return '该文章不在正文库中（可能尚未抓取），请选择“强制抓取”后再试';
     if (state === 'blocked' || detail?.error_code === 'blocked') {
       return '目标站拦截了抓取，请稍后再试';
     }
@@ -475,7 +483,8 @@ export class WikifxService {
         !value ||
         value.language !== language ||
         value.article_id !== articleId ||
-        !value.content
+        !value.content ||
+        this.isFailedContentState(value.content_status)
       ) {
         return null;
       }

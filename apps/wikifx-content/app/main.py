@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.responses import JSONResponse
 
 from app import config, db
 from app.articles.router import router as articles_router
@@ -26,6 +27,11 @@ app = FastAPI(
     ),
     version=config.SERVICE_VERSION,
     lifespan=lifespan,
+    # Do not expose an unauthenticated schema/docs surface on an accidentally
+    # public Railway domain; /healthz is the only intentionally public probe.
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
 )
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 app.include_router(articles_router)
@@ -68,5 +74,7 @@ def _health_payload() -> dict:
 def health():
     payload = _health_payload()
     if not payload["ok"]:
-        raise HTTPException(status_code=503, detail=payload)
+        # Keep the diagnostic fields at the top level so Railway/Docker probes
+        # and the NestJS client can inspect the same shape on success and 503.
+        return JSONResponse(status_code=503, content=payload)
     return payload

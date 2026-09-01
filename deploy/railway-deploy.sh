@@ -22,9 +22,12 @@ railway add --database redis
 
 echo "==> 3/7 创建并部署 WikiFX content sidecar"
 railway add --service wikifx-content
+# SQLite 正文库必须挂持久卷，否则每次 sidecar redeploy 都会丢缓存。
+railway volume add --service wikifx-content --mount-path /app/data
 cd "$ROOT/apps/wikifx-content"
 railway variables --service wikifx-content \
   --set "WIKIFX_CONTENT_API_KEY=${CONTENT_KEY}" \
+  --set "WIKIFX_CONTENT_DATA_DIR=/app/data" \
   --set "PORT=8000"
 railway up --service wikifx-content --detach
 cd "$ROOT"
@@ -90,6 +93,6 @@ API:          https://${API_DOMAIN}/healthz
 WikiFX sidecar: ${CONTENT_URL}（private，仅 api 访问）
 管理密钥 ADMIN_API_KEY: ${ADMIN_KEY}
 Ingest 密钥: ${INGEST_KEY}
-注意：请在 Railway 为 wikifx-content 创建 volume 并挂载到 /app/data，否则正文缓存会随 redeploy 清空。
+正文缓存卷：wikifx-content:/app/data（由脚本创建，Railway redeploy 后仍保留）
 ========================================
 EOF

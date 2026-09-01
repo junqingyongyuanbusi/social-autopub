@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from app.articles.content_policy import should_fetch
 
@@ -25,6 +25,15 @@ def test_not_found_has_cooldown_and_attempt_limit() -> None:
     assert should_fetch(recent, now=now) is False
     assert should_fetch(exhausted, now=now) is False
     assert should_fetch({**recent, "fetched_at": (now - timedelta(days=8)).isoformat()}, now=now)
+
+
+def test_timezone_timestamps_are_compared_without_type_errors() -> None:
+    now = datetime(2026, 9, 1, 12, 0, 0, tzinfo=timezone.utc)
+    row = {
+        "status": "timeout",
+        "fetched_at": "2026-09-01T11:00:00+00:00",
+    }
+    assert should_fetch(row, now=now) is True
 
 
 def test_a_previously_successful_404_is_retried_on_shorter_error_schedule() -> None:
