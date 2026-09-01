@@ -23,7 +23,7 @@ railway add --database redis
 echo "==> 3/7 创建并部署 WikiFX content sidecar"
 railway add --service wikifx-content
 # SQLite 正文库必须挂持久卷，否则每次 sidecar redeploy 都会丢缓存。
-railway volume add --service wikifx-content --mount-path /app/data
+railway volume --service wikifx-content add --mount-path /app/data
 cd "$ROOT/apps/wikifx-content"
 railway variables --service wikifx-content \
   --set "WIKIFX_CONTENT_API_KEY=${CONTENT_KEY}" \
