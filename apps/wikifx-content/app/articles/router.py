@@ -40,10 +40,10 @@ _ARTICLE_LANG = re.compile(r"^[a-z]{2,8}(?:-[a-z]{2,8})?$")
 _ARTICLE_ID = re.compile(r"^[0-9]{8,32}$")
 _OFFICIAL_HOSTS = frozenset({"www.wikifx.com", "aws-www.wikifx.com"})
 
-# A single forced fetch is an operator action.  Serializing it prevents a
-# double-click from issuing two simultaneous requests to Akamai.
-_single_fetch_lock = threading.Lock()
-_resolve_lock = threading.Lock()
+# All fetch paths share one process-local lock.  Besides preventing a
+# double-click, this stops a manual force result from being overwritten by a
+# concurrent topic-enrichment write in the SQLite cache.
+_fetch_lock = threading.Lock()
 
 
 def _error(status_code: int, code: str, message: str) -> HTTPException:
@@ -235,7 +235,7 @@ def resolve_article_contents(
         unique_targets.append(target)
     keys = [(language, article_id) for language, article_id, _ in unique_targets]
 
-    with _resolve_lock:
+    with _fetch_lock:
         before_rows = db.list_article_contents(keys)
         before = {(row["language"], row["article_id"]): row for row in before_rows}
         states = db.get_article_content_states(keys)
@@ -365,7 +365,7 @@ def fetch_single_content(language: str, article_id: str) -> ArticleContentDetail
 
     fetcher = ArticleFetcher()
     try:
-        with _single_fetch_lock:
+        with _fetch_lock:
             row = None
             for url in candidates:
                 row = fetch_article_row(fetcher, (language, article_id, url))
