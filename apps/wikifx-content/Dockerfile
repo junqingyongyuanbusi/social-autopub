@@ -20,7 +20,7 @@ COPY app ./app
 RUN mkdir -p /app/data \
     && chown -R app:app /app
 
-VOLUME ["/app/data"]
+# Persistence is provided by the platform mount at /app/data; Railway rejects Docker VOLUME directives.
 EXPOSE 8000
 
 USER app
