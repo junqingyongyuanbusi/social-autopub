@@ -185,7 +185,7 @@ export class WikifxService {
    * 按受控 URL 手动抓取单篇正文。先读库（force=false），正文缺失或抓取失败
    * 时按 force 决定是否触发上游强制抓取；结果短期缓存供采用时复用。
    */
-  async fetchByUrl(user: RequestUser, url: string, force: boolean) {
+  async fetchByUrl(_user: RequestUser, url: string, force: boolean) {
     let target: ReturnType<typeof parseWikiFXArticleUrl>;
     try {
       target = parseWikiFXArticleUrl(url);
@@ -194,7 +194,7 @@ export class WikifxService {
         error instanceof Error ? error.message : '请输入有效的 WikiFX 文章链接',
       );
     }
-    await this.access.assertPermission(user, target.language, 'canEdit');
+    // 抓取预览不要求语言编辑权限；入口鉴权保留，采用入队仍由 adopt 校验 canEdit。
 
     const cached = await this.readManualCache(target.language, target.articleId);
     if (!force && cached) {

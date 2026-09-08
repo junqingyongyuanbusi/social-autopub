@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { WikifxService } from './wikifx.service';
@@ -76,6 +77,73 @@ const detailOk = {
   first_image_url: 'https://cdn.example.com/a.jpg',
   status: 'ok',
 };
+
+for (const mode of ['upstream', 'cache', 'force'] as const) {
+  test(`fetchByUrl allows an operator without language edit permission (${mode})`, async () => {
+    const article = {
+      ...detailOk,
+      language: 'en',
+      url: detailOk.url.replace('/ja/', '/en/'),
+      content_status: 'ok',
+      content_message: null,
+    };
+    let permissionChecks = 0;
+    let upstreamHits = 0;
+    const { service } = makeService({
+      access: {
+        assertPermission: async () => {
+          permissionChecks++;
+          throw new ForbiddenException('no canEdit permission for language en');
+        },
+        visibleLanguages: async () => [],
+      },
+      redis: {
+        get: async () => mode === 'upstream' ? null : JSON.stringify(article),
+      },
+      client: {
+        fetchArticle: async (language: string, id: string, options: { force?: boolean }) => {
+          upstreamHits++;
+          assert.equal(language, 'en');
+          assert.equal(id, article.article_id);
+          assert.equal(options.force, mode === 'force');
+          return { status: 200, data: article };
+        },
+      },
+    });
+    const result = await service.fetchByUrl(
+      { id: 'operator-without-accounts', role: 'operator' },
+      article.url,
+      mode === 'force',
+    );
+    assert.equal(result.article.content, article.content);
+    assert.equal(result.origin, mode === 'cache' ? 'cache' : 'upstream');
+    assert.equal(upstreamHits, mode === 'cache' ? 0 : 1);
+    assert.equal(permissionChecks, 0);
+  });
+}
+
+for (const manual of [false, true]) {
+  test(`adopt still requires language edit permission (manual=${manual})`, async () => {
+    const { service, ingest } = makeService({
+      access: {
+        assertPermission: async (user: { id: string }, language: string, permission: string) => {
+          assert.equal(user.id, 'operator-without-accounts');
+          assert.equal(language, 'en');
+          assert.equal(permission, 'canEdit');
+          throw new ForbiddenException('no canEdit permission for language en');
+        },
+      },
+    });
+    await assert.rejects(
+      () => service.adopt(
+        { id: 'operator-without-accounts', role: 'operator' },
+        { article_id: detailOk.article_id, language: 'en', manual },
+      ),
+      ForbiddenException,
+    );
+    assert.equal(ingest.upsertCalls.length, 0);
+  });
+}
 
 test('fetchByUrl rejects untrusted url before any upstream call', async () => {
   const { service, client } = makeService();
