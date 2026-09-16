@@ -356,6 +356,13 @@ export class PublishService {
 
     const snapshots = new Map<string, PreparedPostizMedia[]>();
     for (const generation of generations) {
+      // 手动撰写页已在编辑期把图上传到 Postiz，这里直接复用，
+      // 既避免二次上传，也避免重复消耗 Postiz 限流配额
+      const prepared = this.preparedMedia(generation.preparedMedia);
+      if (prepared.length) {
+        snapshots.set(generation.platform, prepared);
+        continue;
+      }
       const urls = this.stringArray(generation.media);
       if (generation.platform === 'instagram' && !urls.length) {
         throw new ContentValidationError(
@@ -387,6 +394,17 @@ export class PublishService {
               postizIntegrationId: target.postizIntegrationId,
             },
           ]
+        : [];
+    });
+  }
+
+  private preparedMedia(value: unknown): PreparedPostizMedia[] {
+    if (!Array.isArray(value)) return [];
+    return value.flatMap((entry) => {
+      if (!entry || typeof entry !== 'object') return [];
+      const media = entry as Record<string, unknown>;
+      return typeof media.id === 'string' && typeof media.path === 'string'
+        ? [{ id: media.id, path: media.path }]
         : [];
     });
   }

@@ -40,7 +40,12 @@ export class ContentController {
   @UseGuards(AdminRoleGuard)
   async requeueFailed() {
     const failed = await this.prisma.contentItem.findMany({
-      where: { status: 'FAILED', jobs: { none: {} } },
+      // 手动撰写的内容没有源文可供 LLM 重新生成，重跑会直接删掉运营自己写的文案
+      where: {
+        status: 'FAILED',
+        jobs: { none: {} },
+        source: { not: 'manual' },
+      },
       select: { id: true, forceReview: true },
     });
     let requeued = 0;
@@ -48,7 +53,12 @@ export class ContentController {
     for (const { id, forceReview } of failed) {
       const revision = await this.prisma.$transaction(async (tx) => {
         const claimed = await tx.contentItem.updateMany({
-          where: { id, status: 'FAILED', jobs: { none: {} } },
+          where: {
+            id,
+            status: 'FAILED',
+            jobs: { none: {} },
+            source: { not: 'manual' },
+          },
           data: {
             status: 'PENDING',
             lastError: null,
@@ -97,15 +107,15 @@ export class ContentController {
     @Query('contentType') contentType?: string,
     @Query('source') source?: string,
   ) {
-    const languages = await this.access.visibleLanguages(user);
-    if (languages !== null && !languages.length) return [];
+    const visibility = await this.buildVisibilityWhere(user);
+    if (visibility === null) return [];
     return this.prisma.contentItem.findMany({
       where: {
         ...(status ? { status: status as never } : {}),
         ...(language ? { language } : {}),
         ...(contentType ? { contentType } : {}),
         ...(source ? { source } : {}),
-        ...(languages !== null ? { language: { in: languages } } : {}),
+        ...visibility,
       },
       include: { generations: true, jobs: true },
       omit: { rawPayload: true },
@@ -121,8 +131,7 @@ export class ContentController {
       include: { generations: true, jobs: true },
     });
     if (!item) throw new NotFoundException();
-    const languages = await this.access.visibleLanguages(user);
-    if (languages !== null && !languages.includes(item.language)) throw new NotFoundException();
+    if (!(await this.isVisibleTo(user, item))) throw new NotFoundException();
     const composedItem = {
       ...item,
       generations: item.generations.map((generation) => {
@@ -213,6 +222,10 @@ export class ContentController {
   async regenerate(@CurrentUser() user: RequestUser, @Param('id') id: string) {
     const item = await this.prisma.contentItem.findUnique({ where: { id } });
     if (!item) throw new NotFoundException();
+    // 手动撰写的内容由运营自己写、自己配图，没有可重新生成的源文
+    if (item.source === 'manual') {
+      throw new BadRequestException('手动撰写的内容不支持重新生成');
+    }
     if (!['FAILED', 'REJECTED', 'REVIEW'].includes(item.status)) {
       throw new BadRequestException(`cannot regenerate status=${item.status}`);
     }
@@ -328,5 +341,45 @@ export class ContentController {
     });
     if (!rejected.count) throw new BadRequestException('content is no longer awaiting review');
     return { rejected: true };
+  }
+
+  // 非 admin 的可见性：
+  // - 语言集合覆盖的常规内容（Notion / HTTP / WikiFX）
+  // - 自己账号关联的手动撰写内容（其语言可能不在语言集合内）
+  // 返回值 null 表示当前用户没有任何可见内容，{} 表示不受限（admin）
+  private async buildVisibilityWhere(
+    user: RequestUser,
+  ): Promise<Record<string, unknown> | null> {
+    const [languages, accountIds] = await Promise.all([
+      this.access.visibleLanguages(user),
+      this.access.visibleAccountIds(user),
+    ]);
+    if (languages === null || accountIds === null) return {};
+    const clauses: Array<Record<string, unknown>> = [];
+    if (languages.length) clauses.push({ language: { in: languages } });
+    if (accountIds.length) {
+      clauses.push({
+        source: 'manual',
+        targetAccountIds: { hasSome: accountIds },
+      });
+    }
+    return clauses.length ? { OR: clauses } : null;
+  }
+
+  // 单条内容的可见性判定，与 buildVisibilityWhere 保持同一语义
+  private async isVisibleTo(
+    user: RequestUser,
+    item: { language: string; source: string; targetAccountIds: string[] },
+  ): Promise<boolean> {
+    const [languages, accountIds] = await Promise.all([
+      this.access.visibleLanguages(user),
+      this.access.visibleAccountIds(user),
+    ]);
+    if (languages === null || accountIds === null) return true;
+    if (languages.includes(item.language)) return true;
+    return (
+      item.source === 'manual' &&
+      item.targetAccountIds.some((accountId) => accountIds.includes(accountId))
+    );
   }
 }

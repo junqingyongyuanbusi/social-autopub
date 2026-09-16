@@ -57,3 +57,72 @@ test("dispatch claims a revision and queues one deterministic preparation job", 
     },
   ]);
 });
+
+test("prepare reuses generation preparedMedia and skips secondary postiz preparation", async () => {
+  const storedPrepared = [{ id: "postiz-media-1", path: "https://postiz.invalid/m1.jpg" }];
+  const contentItem = {
+    id: "item-manual",
+    status: "PUBLISHING",
+    publishRevision: 1,
+    source: "manual",
+    sourceTableType: null,
+    publishLink: null,
+    language: "en",
+    contentType: "manual",
+    publishAt: null,
+    publishTargets: [{ platform: "instagram", postizIntegrationId: "ig-acc-1" }],
+    generations: [
+      {
+        platform: "instagram",
+        content: "manual copy",
+        media: [],
+        preparedMedia: storedPrepared,
+      },
+    ],
+  };
+  let prepareMediaCalled = false;
+  let createdJobPayload: any = null;
+  const enqueuedJobs: string[] = [];
+
+  const service = new PublishService(
+    {
+      contentItem: {
+        findUniqueOrThrow: async () => contentItem,
+        update: async () => ({}),
+      },
+      publishJob: {
+        findMany: async () => [],
+      },
+      $transaction: async (callback: (tx: any) => Promise<unknown>) =>
+        callback({
+          publishJob: {
+            create: async ({ data }: any) => {
+              createdJobPayload = data;
+              return { id: "pjob-1", publishRevision: 1, status: "queued", ...data };
+            },
+          },
+        }),
+    } as any,
+    {} as any,
+    {
+      prepareMedia: async () => {
+        prepareMediaCalled = true;
+        return [];
+      },
+    } as any,
+    {} as any,
+    {} as any,
+    {
+      add: async (_name: string, data: any) => {
+        enqueuedJobs.push(data.publishJobId);
+      },
+    } as any,
+  );
+
+  const dispatched = await service.prepare("item-manual", 1);
+
+  assert.equal(dispatched, 1);
+  assert.equal(prepareMediaCalled, false);
+  assert.deepEqual(createdJobPayload.mediaSnapshot, storedPrepared);
+  assert.deepEqual(enqueuedJobs, ["pjob-1"]);
+});

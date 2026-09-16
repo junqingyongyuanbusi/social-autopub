@@ -90,6 +90,7 @@ model ContentItem {
   generationRevision Int           @default(0)
   publishRevision    Int           @default(0)
   publishTargets     Json?
+  targetAccountIds   String[]      @default([]) // 手动撰写内容的目标本地账号，用于可见性过滤
   forceReview        Boolean       @default(false)
   rawPayload      Json?
   generations     Generation[]
@@ -111,6 +112,7 @@ model Generation {
   platform        String // x | instagram | facebook
   content         String
   media           Json           @default("[]")
+  preparedMedia   Json? // 手动撰写页已上传到 Postiz 的 {id,path}[]，发布时直接复用
   settings        Json? // Postiz 平台 settings 透传
   createdAt       DateTime       @default(now())
 

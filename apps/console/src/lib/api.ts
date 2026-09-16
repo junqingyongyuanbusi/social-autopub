@@ -11,6 +11,7 @@ export interface Generation {
   platform: string;
   content: string;
   media: string[];
+  preparedMedia?: Array<{ id: string; path: string }> | null;
   systemSuffix?: string;
   finalContent?: string;
   measuredLength?: number;
@@ -244,11 +245,14 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       serverHeaders["x-user-role"] = user.role ?? "operator";
     }
   }
+  // FormData 必须由运行时生成带 boundary 的 content-type，不能写死 JSON
+  const isFormDataBody =
+    typeof FormData !== "undefined" && init?.body instanceof FormData;
   const res = await fetch(`${API}${path}`, {
     cache: "no-store",
     ...init,
     headers: {
-      "Content-Type": "application/json",
+      ...(isFormDataBody ? {} : { "Content-Type": "application/json" }),
       ...serverHeaders,
       ...init?.headers,
     },
@@ -347,3 +351,71 @@ export const putAction = (path: string, body: object) =>
   request<unknown>(path, { method: "PUT", body: JSON.stringify(body) });
 export const deleteAction = (path: string) =>
   request<unknown>(path, { method: "DELETE" });
+
+export type ComposeMediaSlot = "instagram_4x5" | "landscape_16x9";
+
+export interface MediaUploadResult {
+  id: string;
+  path: string;
+  slot: ComposeMediaSlot;
+  width: number;
+  height: number;
+  sourceWidth: number | null;
+  sourceHeight: number | null;
+}
+
+// 上传配图：4:5 槽位给 Instagram，16:9 槽位给 Facebook 与 X
+export function uploadComposeMedia(file: File, slot: ComposeMediaSlot) {
+  const form = new FormData();
+  form.append("file", file);
+  form.append("slot", slot);
+  return request<MediaUploadResult>("/v1/media/upload", {
+    method: "POST",
+    body: form,
+  });
+}
+
+export interface ComposeAccountOption {
+  id: string;
+  name: string;
+  platform: string;
+  market: string | null;
+  owner?: { id: string; name: string } | null;
+}
+
+export interface ComposeOptions {
+  dryRun: boolean;
+  accounts: ComposeAccountOption[];
+  languages: string[];
+}
+
+export interface ComposeMediaRef {
+  id: string;
+  path: string;
+}
+
+export interface ComposePublishInput {
+  language: string;
+  text: string;
+  accounts: Array<{ platform: string; accountId: string }>;
+  media?: {
+    instagram?: ComposeMediaRef;
+    landscape?: ComposeMediaRef;
+  };
+  publishAt?: string | null;
+}
+
+export interface ComposePublishResult {
+  contentItemId: string;
+  status: string;
+  platforms: string[];
+}
+
+export const fetchComposeOptions = () =>
+  request<ComposeOptions>("/v1/compose/options");
+
+export const publishCompose = (input: ComposePublishInput) =>
+  request<ComposePublishResult>("/v1/compose/publish", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });

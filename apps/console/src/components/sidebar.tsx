@@ -16,6 +16,7 @@ import {
   Send,
   Settings,
   Sparkles,
+  SquarePen,
   Users,
   X,
 } from "lucide-react";
@@ -25,6 +26,7 @@ import { useState } from "react";
 const NAV = [
   { href: "/dashboard", label: "总览", icon: LayoutDashboard },
   { href: "/topics", label: "热点选题", icon: Sparkles },
+  { href: "/compose", label: "撰写发布", icon: SquarePen },
   { href: "/queue", label: "内容队列", icon: LayoutList },
   { href: "/review", label: "审核工作台", icon: ListChecks },
   { href: "/records", label: "发布记录", icon: Send },

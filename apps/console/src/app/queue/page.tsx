@@ -9,12 +9,14 @@ const TYPE_LABEL: Record<string, string> = {
   education: "教育",
   review: "测评",
   exposure: "曝光",
+  manual: "手动撰写",
 };
 
 const SOURCE_LABEL: Record<string, string> = {
   notion: "Notion",
   wikifx: "WikiFX 热点",
   http: "HTTP 推送",
+  manual: "手动撰写",
 };
 
 export default async function QueuePage({
@@ -103,6 +105,7 @@ export default async function QueuePage({
             <option value="notion">Notion</option>
             <option value="wikifx">WikiFX 热点</option>
             <option value="http">HTTP 推送</option>
+            <option value="manual">手动撰写</option>
           </select>
         </label>
         <button

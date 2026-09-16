@@ -67,8 +67,12 @@ export class PublishProcessor extends WorkerHost {
     let remoteAccepted = false;
     try {
       if (!gen) throw new Error(`generation missing for ${pj.platform}`);
-      const generationMedia = this.stringArray(gen.media);
-      if (pj.mediaSnapshot == null && generationMedia.length) {
+      // 手动撰写页的内容只有已上传的 preparedMedia、没有源图 URL，
+      // 因此预期数量以 preparedMedia 优先，避免误报「媒体快照不完整」
+      const expectedMediaCount =
+        this.preparedMedia(gen.preparedMedia).length ||
+        this.stringArray(gen.media).length;
+      if (pj.mediaSnapshot == null && expectedMediaCount) {
         throw new ContentValidationError(
           "旧发布任务缺少媒体快照，请返回审核后重新批准",
         );
@@ -77,7 +81,7 @@ export class PublishProcessor extends WorkerHost {
       if (
         !Array.isArray(pj.mediaSnapshot) ||
         preparedMedia.length !== pj.mediaSnapshot.length ||
-        preparedMedia.length !== generationMedia.length
+        preparedMedia.length !== expectedMediaCount
       ) {
         throw new ContentValidationError(
           "发布媒体快照不完整，请返回审核后重新批准",

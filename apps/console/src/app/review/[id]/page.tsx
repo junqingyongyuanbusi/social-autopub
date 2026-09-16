@@ -28,6 +28,7 @@ const SOURCE_LABEL: Record<string, string> = {
   notion: "Notion",
   wikifx: "WikiFX 热点",
   http: "HTTP 推送",
+  manual: "手动撰写",
 };
 
 type RawRecord = Record<string, unknown>;

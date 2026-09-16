@@ -122,6 +122,19 @@ export class PostizClient {
     return { postId: res?.[0]?.postId ?? res?.id };
   }
 
+  // 手动撰写页使用：把本地文件直接上传到 Postiz，返回可在发布时复用的媒体引用
+  async uploadMedia(input: {
+    buffer: Buffer;
+    filename: string;
+    contentType?: string;
+  }): Promise<PreparedPostizMedia> {
+    return this.uploadBuffer(
+      input.buffer,
+      input.filename,
+      input.contentType || this.imageContentType(input.filename),
+    );
+  }
+
   private async uploadBuffer(
     buffer: Buffer,
     filename: string,
@@ -140,7 +153,7 @@ export class PostizClient {
       body: form,
       signal: AbortSignal.timeout(PostizClient.UPLOAD_TIMEOUT_MS),
     });
-    if (!res.ok) throw new Error(`instagram media upload ${res.status}`);
+    if (!res.ok) throw new Error(`postiz media upload ${res.status}`);
     return res.json() as Promise<{ id: string; path: string }>;
   }
 

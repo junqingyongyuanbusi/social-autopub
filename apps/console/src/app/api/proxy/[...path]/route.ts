@@ -19,15 +19,26 @@ async function handler(req: NextRequest, { params }: { params: Promise<{ path: s
     return NextResponse.json({ error: 'forbidden' }, { status: 403 });
   }
 
+  // 文件上传走 multipart：必须原样转发二进制体并保留带 boundary 的 content-type，
+  // 否则 API 侧无法解析表单
+  const inboundContentType = req.headers.get('content-type') ?? '';
+  const isMultipart = inboundContentType.startsWith('multipart/form-data');
+  const body =
+    req.method === 'GET' || req.method === 'HEAD'
+      ? undefined
+      : isMultipart
+        ? await req.arrayBuffer()
+        : await req.text();
+
   const res = await fetch(`${API}/${joined}${req.nextUrl.search}`, {
     method: req.method,
     headers: {
-      'Content-Type': 'application/json',
+      'Content-Type': isMultipart ? inboundContentType : 'application/json',
       'x-admin-key': process.env.ADMIN_API_KEY ?? '',
       'x-user-id': user?.id ?? '',
       'x-user-role': role,
     },
-    body: req.method === 'GET' || req.method === 'HEAD' ? undefined : await req.text(),
+    body,
     cache: 'no-store',
   });
   return new NextResponse(await res.text(), {

@@ -32,3 +32,4 @@ AGENTS.md
 
 # 构建产物增量缓存
 *.tsbuildinfo
+.cursor/
