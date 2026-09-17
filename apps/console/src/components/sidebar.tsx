@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
 import {
+  BarChart3,
   CalendarDays,
   FileText,
   Image as ImageIcon,
@@ -30,6 +31,7 @@ const NAV = [
   { href: "/queue", label: "内容队列", icon: LayoutList },
   { href: "/review", label: "审核工作台", icon: ListChecks },
   { href: "/records", label: "发布记录", icon: Send },
+  { href: "/analytics", label: "数据分析", icon: BarChart3 },
   { href: "/routing", label: "路由矩阵", icon: Route, adminOnly: true },
   { href: "/accounts", label: "账号健康", icon: Users },
   { href: "/calendar", label: "发布日历", icon: CalendarDays },

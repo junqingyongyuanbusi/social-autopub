@@ -153,6 +153,7 @@ model Account {
   lastSyncedAt        DateTime?
   rules               RoutingRule[]
   userLinks           UserAccount[]
+  metricSnapshots     AccountMetricSnapshot[]
 }
 
 // 路由矩阵：语言 × 内容类型 × 平台 → 账号（多行命中即多账号发布，priority 容灾）
@@ -185,5 +186,35 @@ model PublishJob {
   createdAt           DateTime    @default(now())
   updatedAt           DateTime    @updatedAt
 
+  metricSnapshots     PostMetricSnapshot[]
+
   @@unique([contentItemId, publishRevision, platform, postizIntegrationId])
+}
+
+// 账号级日指标快照：Postiz 集成级 analytics 的规范化沉淀（一行 = 一个账号 × 一个指标 × 一天）
+model AccountMetricSnapshot {
+  id        String   @id @default(cuid())
+  accountId String
+  account   Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  metric    String // Postiz 返回的 label，如 Followers / Impressions / Engagement
+  date      DateTime @db.Date
+  value     Float
+  fetchedAt DateTime @updatedAt
+
+  @@unique([accountId, metric, date])
+  @@index([accountId, date])
+}
+
+// 帖子级日指标快照：挂在 PublishJob 上，可 join 回内容标题与平台
+model PostMetricSnapshot {
+  id           String     @id @default(cuid())
+  publishJobId String
+  publishJob   PublishJob @relation(fields: [publishJobId], references: [id], onDelete: Cascade)
+  metric       String // Postiz 返回的 label，如 Likes / Comments / Shares / Impressions
+  date         DateTime   @db.Date
+  value        Float
+  fetchedAt    DateTime   @updatedAt
+
+  @@unique([publishJobId, metric, date])
+  @@index([publishJobId, date])
 }

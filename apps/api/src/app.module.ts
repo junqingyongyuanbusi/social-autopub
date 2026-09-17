@@ -13,6 +13,7 @@ import { GenerationModule } from './generation/generation.module';
 import { PublishModule } from './publish/publish.module';
 import { ContentModule } from './content/content.module';
 import { PostizModule } from './postiz/postiz.module';
+import { AnalyticsModule } from './analytics/analytics.module';
 import { AdminModule } from './admin/admin.module';
 import { AuthModule } from './auth/auth.module';
 import { CommonModule } from './common/common.module';
@@ -48,6 +49,7 @@ import { CommonModule } from './common/common.module';
     GenerationModule,
     PublishModule,
     ContentModule,
+    AnalyticsModule,
     AdminModule,
     AuthModule,
   ],

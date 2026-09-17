@@ -308,6 +308,59 @@ export const fetchUsers = () => request<ConsoleUser[]>("/v1/users");
 export const fetchPrompts = () =>
   request<PromptVersionsResponse>("/v1/prompts");
 
+export interface AnalyticsMetricPoint {
+  date: string; // YYYY-MM-DD
+  value: number;
+}
+
+export interface AnalyticsMetricSummary {
+  metric: string;
+  latestValue: number;
+  latestDate: string;
+  changePct: number | null;
+}
+
+export interface AnalyticsOverview {
+  days: number;
+  metrics: AnalyticsMetricSummary[];
+  series: Array<{ metric: string; points: AnalyticsMetricPoint[] }>;
+  accounts: Array<{
+    accountId: string;
+    name: string;
+    platform: string;
+    market: string | null;
+    metrics: AnalyticsMetricSummary[];
+  }>;
+}
+
+export interface AnalyticsAccountSeries {
+  account: {
+    id: string;
+    name: string;
+    platform: string;
+    market: string | null;
+  };
+  series: Array<{ metric: string; points: AnalyticsMetricPoint[] }>;
+}
+
+export interface AnalyticsPostRow {
+  publishJobId: string;
+  platform: string;
+  title: string;
+  language: string;
+  publishedAt: string;
+  metrics: Array<{ metric: string; total: number }>;
+}
+
+export const fetchAnalyticsOverview = (days: number) =>
+  request<AnalyticsOverview>(`/v1/analytics/overview?days=${days}`);
+export const fetchAnalyticsAccount = (accountId: string, days: number) =>
+  request<AnalyticsAccountSeries>(
+    `/v1/analytics/accounts/${accountId}?days=${days}`,
+  );
+export const fetchAnalyticsPosts = (days: number) =>
+  request<AnalyticsPostRow[]>(`/v1/analytics/posts?days=${days}`);
+
 export function fetchWikiFxTopics(
   params: { days?: number; top?: number } = {},
 ) {

@@ -12,6 +12,13 @@ export interface PostizMediaInput {
   buffer?: Buffer;
 }
 
+// Postiz analytics 端点的统一返回结构：每个指标一条按日序列
+export interface PostizAnalyticsSeries {
+  label: string;
+  data: Array<{ total: string; date: string }>;
+  percentageChange?: number;
+}
+
 export class PostizOutcomeUnknownError extends Error {
   constructor(message: string) {
     super(message);
@@ -50,6 +57,28 @@ export class PostizClient {
     Array<{ id: string; name: string; identifier: string; disabled?: boolean }>
   > {
     return this.request('GET', '/integrations');
+  }
+
+  // 集成（账号）级 analytics：followers / impressions 等账号指标，days 为回看窗口
+  async getIntegrationAnalytics(
+    integrationId: string,
+    days: number,
+  ): Promise<PostizAnalyticsSeries[]> {
+    return this.request(
+      'GET',
+      `/analytics/${encodeURIComponent(integrationId)}?date=${days}`,
+    );
+  }
+
+  // 帖子级 analytics：likes / comments / shares / impressions 等，days 为回看窗口
+  async getPostAnalytics(
+    postId: string,
+    days: number,
+  ): Promise<PostizAnalyticsSeries[]> {
+    return this.request(
+      'GET',
+      `/analytics/post/${encodeURIComponent(postId)}?date=${days}`,
+    );
   }
 
   async prepareMedia(
