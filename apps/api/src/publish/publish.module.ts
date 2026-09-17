@@ -4,6 +4,7 @@ import { QUEUE_PUBLISH, QUEUE_PUBLISH_PREPARE } from "../queues";
 import { PostizModule } from "../postiz/postiz.module";
 import { NotionModule } from "../sources/notion/notion.module";
 import { JobsController } from "./jobs.controller";
+import { PostizDeliveryReconcileService } from "./delivery-reconcile.service";
 import { PublishProcessor } from "./publish.processor";
 import { PublishPreparationProcessor } from "./publish-preparation.processor";
 import { PublishService } from "./publish.service";
@@ -23,6 +24,7 @@ import { RoutingService } from "./routing.service";
     PublishPreparationProcessor,
     PublishProcessor,
     PublishRecoveryService,
+    PostizDeliveryReconcileService,
     RoutingService,
   ],
   exports: [PublishService, RoutingService],

@@ -3,7 +3,8 @@ import { StatusBadge } from '@/components/status-badge';
 
 export const dynamic = 'force-dynamic';
 
-// 发布日历（P2 简版）：按日期分组展示未来的定时任务与近期已发布；拖拽调整属后续迭代
+// 发布日历（P2 简版）：按日期分组展示未来的定时任务与近期已发布，最新日期在最上（当天记录无需翻页）；
+// 组内按时间正序；拖拽调整属后续迭代
 export default async function CalendarPage() {
   const items = await fetchContents().catch(() => []);
   const dated = items
@@ -15,6 +16,8 @@ export default async function CalendarPage() {
     const day = new Date(item.publishAt ?? item.createdAt).toLocaleDateString('zh-CN', { dateStyle: 'full' });
     groups.set(day, [...(groups.get(day) ?? []), item]);
   }
+  // 日期分组倒序：最新的日期排在最上面
+  const orderedGroups = [...groups.entries()].reverse();
 
   return (
     <div>
@@ -25,7 +28,7 @@ export default async function CalendarPage() {
         </div>
       ) : (
         <div className="space-y-6">
-          {[...groups.entries()].map(([day, list]) => (
+          {orderedGroups.map(([day, list]) => (
             <section key={day}>
               <h2 className="mb-2 text-sm font-medium text-muted-foreground">{day}</h2>
               <ul className="space-y-2">

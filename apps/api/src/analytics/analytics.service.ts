@@ -19,6 +19,7 @@ export interface MetricSummary {
 
 export interface AnalyticsOverview {
   days: number;
+  lastSyncedAt: string | null;
   metrics: MetricSummary[]; // 可见账号合计口径
   series: Array<{ metric: string; points: MetricPoint[] }>; // 可见账号按日合计，用于趋势图
   accounts: Array<{
@@ -68,7 +69,7 @@ export class AnalyticsService {
   async overview(user: RequestUser, days: number): Promise<AnalyticsOverview> {
     const accountIds = await this.access.visibleAccountIds(user);
     if (accountIds !== null && accountIds.length === 0) {
-      return { days, metrics: [], series: [], accounts: [] };
+      return { days, lastSyncedAt: null, metrics: [], series: [], accounts: [] };
     }
     const snapshots = await this.prisma.accountMetricSnapshot.findMany({
       where: {
@@ -121,7 +122,14 @@ export class AnalyticsService {
       points: toPoints(mergeMetricSeries(rowsList)),
     }));
 
-    return { days, metrics, series, accounts };
+    const latestSnapshot = await this.prisma.accountMetricSnapshot.findFirst({
+      where: accountIds !== null ? { accountId: { in: accountIds } } : {},
+      orderBy: { fetchedAt: 'desc' },
+      select: { fetchedAt: true },
+    });
+    const lastSyncedAt = latestSnapshot?.fetchedAt.toISOString() ?? null;
+
+    return { days, lastSyncedAt, metrics, series, accounts };
   }
 
   async accountSeries(

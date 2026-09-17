@@ -1,8 +1,9 @@
-import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { z } from 'zod';
 import { AdminKeyGuard } from '../common/admin-key.guard';
 import { CurrentUser, RequestUser } from '../common/current-user';
 import { AnalyticsService } from './analytics.service';
+import { AnalyticsSyncService } from './analytics-sync.service';
 
 // 时间窗口仅开放 7/30/90 天，与 Postiz analytics 端点的文档口径一致
 const daysSchema = z.coerce
@@ -15,11 +16,20 @@ const daysSchema = z.coerce
 @Controller('analytics')
 @UseGuards(AdminKeyGuard)
 export class AnalyticsController {
-  constructor(private readonly analytics: AnalyticsService) {}
+  constructor(
+    private readonly analytics: AnalyticsService,
+    private readonly syncService: AnalyticsSyncService,
+  ) {}
 
   @Get('overview')
   async overview(@CurrentUser() user: RequestUser, @Query('days') days?: string) {
     return this.analytics.overview(user, parseDays(days));
+  }
+
+  // 手动 / 页面切入时触发一次同步（带 3 分钟防抖冷却；可通过 ?force=true 强制）
+  @Post('sync')
+  async syncNow(@Query('force') force?: string) {
+    return this.syncService.syncNow(force === 'true');
   }
 
   @Get('accounts/:accountId')

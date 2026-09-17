@@ -14,6 +14,9 @@ const DAY_MS = 86_400_000;
 export class AnalyticsSyncService {
   private readonly logger = new Logger(AnalyticsSyncService.name);
   private running = false;
+  private lastSyncCompletedAt: Date | null = null;
+  // 冷却时间：默认 3 分钟防抖，防止用户频繁切换页面把 Postiz 限流配额打爆
+  private static readonly COOLDOWN_MS = 3 * 60 * 1000;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -22,17 +25,59 @@ export class AnalyticsSyncService {
 
   @Cron('10,40 * * * *')
   async sync(): Promise<void> {
-    if (!process.env.POSTIZ_API_URL) return;
-    if (this.running) return; // 上一轮仍在排队等待限流预算时跳过本轮
+    await this.syncNow(false);
+  }
+
+  // 手动/页面切入时触发的同步：带冷却防抖保护
+  async syncNow(force = false): Promise<{
+    synced: boolean;
+    reason?: string;
+    lastSyncedAt: string | null;
+  }> {
+    if (!process.env.POSTIZ_API_URL) {
+      return { synced: false, reason: 'not_configured', lastSyncedAt: null };
+    }
+    if (this.running) {
+      return {
+        synced: false,
+        reason: 'already_running',
+        lastSyncedAt: this.lastSyncCompletedAt?.toISOString() ?? null,
+      };
+    }
+    if (
+      !force &&
+      this.lastSyncCompletedAt &&
+      Date.now() - this.lastSyncCompletedAt.getTime() < AnalyticsSyncService.COOLDOWN_MS
+    ) {
+      return {
+        synced: false,
+        reason: 'cooldown',
+        lastSyncedAt: this.lastSyncCompletedAt.toISOString(),
+      };
+    }
     this.running = true;
     try {
       const remaining = await this.syncAccountMetrics(this.maxRequestsPerRound());
       await this.syncPostMetrics(remaining);
+      this.lastSyncCompletedAt = new Date();
+      return {
+        synced: true,
+        lastSyncedAt: this.lastSyncCompletedAt.toISOString(),
+      };
     } catch (error) {
       this.logger.warn(`analytics 采集轮次异常：${(error as Error).message}`);
+      return {
+        synced: false,
+        reason: (error as Error).message,
+        lastSyncedAt: this.lastSyncCompletedAt?.toISOString() ?? null,
+      };
     } finally {
       this.running = false;
     }
+  }
+
+  getLastSyncCompletedAt(): Date | null {
+    return this.lastSyncCompletedAt;
   }
 
   // 账号级指标：每个 active 账号一次集成级 analytics 请求；返回剩余预算

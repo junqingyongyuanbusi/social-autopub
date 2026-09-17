@@ -1,12 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { RefreshCw } from "lucide-react";
 import {
   AnalyticsMetricSummary,
   AnalyticsOverview,
   AnalyticsPostRow,
   fetchAnalyticsOverview,
   fetchAnalyticsPosts,
+  syncAnalytics,
 } from "@/lib/api";
 import { TrendChart } from "@/components/trend-chart";
 
@@ -30,6 +32,19 @@ const METRIC_LABELS: Record<string, string> = {
 };
 
 const metricLabel = (metric: string) => METRIC_LABELS[metric] ?? metric;
+
+function formatLastSynced(iso: string | null | undefined): string {
+  if (!iso) return "暂无同步记录";
+  try {
+    const date = new Date(iso);
+    const diffMin = Math.round((Date.now() - date.getTime()) / 60000);
+    if (diffMin < 1) return "刚刚";
+    if (diffMin < 60) return `${diffMin} 分钟前`;
+    return date.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
+  } catch {
+    return iso;
+  }
+}
 
 function ChangeBadge({ changePct }: { changePct: number | null }) {
   if (changePct === null) {
@@ -72,6 +87,8 @@ export default function AnalyticsPage() {
   const [posts, setPosts] = useState<AnalyticsPostRow[]>([]);
   const [activeMetric, setActiveMetric] = useState<string>("");
   const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
+  const [syncNotice, setSyncNotice] = useState("");
   const [error, setError] = useState("");
 
   const load = useCallback((windowDays: number) => {
@@ -93,28 +110,91 @@ export default function AnalyticsPage() {
 
   useEffect(() => load(days), [days, load]);
 
+  // 触发后台同步：带冷却防抖保护（force=true 跳过冷却）
+  const triggerSync = useCallback(
+    async (force = false) => {
+      setSyncing(true);
+      setSyncNotice("");
+      try {
+        const res = await syncAnalytics(force);
+        if (res.synced) {
+          setSyncNotice("已获取最新数据");
+          // 静默更新看板
+          const [overviewData, postsData] = await Promise.all([
+            fetchAnalyticsOverview(days),
+            fetchAnalyticsPosts(days),
+          ]);
+          setOverview(overviewData);
+          setPosts(postsData);
+        } else if (res.reason === "cooldown" && force) {
+          setSyncNotice("数据已是最新（3分钟内已刷新）");
+        }
+      } catch {
+        if (force) setSyncNotice("刷新失败，请稍后重试");
+      } finally {
+        setSyncing(false);
+        setTimeout(() => setSyncNotice(""), 3000);
+      }
+    },
+    [days],
+  );
+
+  // 进入页面时：自动后台静默触发一次同步（受 3 分钟冷却保护，不阻塞页面秒开）
+  const initialSyncRef = useRef(false);
+  useEffect(() => {
+    if (!initialSyncRef.current) {
+      initialSyncRef.current = true;
+      void triggerSync(false);
+    }
+  }, [triggerSync]);
+
   const activeSeries = overview?.series.find((entry) => entry.metric === activeMetric);
   const hasData = Boolean(overview && (overview.metrics.length || overview.accounts.length));
 
   return (
     <div>
-      <div className="mb-4 flex items-center justify-between">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold">数据分析</h1>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            指标由系统每 30 分钟从 Postiz 自动采集入库；仅展示你有权限的账号
+            进入页面自动刷新最新统计，后台亦每 30 分钟例行采集；仅展示你有权限的账号
           </p>
         </div>
-        <select
-          value={days}
-          onChange={(event) => setDays(Number(event.target.value))}
-          className="rounded-md border border-border px-2.5 py-1.5 text-sm"
-          aria-label="统计窗口"
-        >
-          {WINDOWS.map((value) => (
-            <option key={value} value={value}>近 {value} 天</option>
-          ))}
-        </select>
+        <div className="flex items-center gap-2.5">
+          {overview?.lastSyncedAt && (
+            <span className="text-xs text-muted-foreground tabular-nums">
+              更新于 {formatLastSynced(overview.lastSyncedAt)}
+            </span>
+          )}
+          {syncNotice && (
+            <span className="text-xs text-primary transition-opacity">
+              {syncNotice}
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={() => void triggerSync(true)}
+            disabled={syncing}
+            title="强制从 Postiz 拉取最新统计数据"
+            className="inline-flex min-h-9 items-center gap-1.5 rounded-md border border-border bg-card px-2.5 py-1 text-xs font-medium text-muted-foreground transition-all hover:border-primary hover:text-primary active:scale-95 disabled:opacity-50"
+          >
+            <RefreshCw
+              className={`size-3.5 ${syncing ? "animate-spin text-primary" : ""}`}
+              aria-hidden
+            />
+            {syncing ? "正在更新…" : "立即刷新"}
+          </button>
+          <select
+            value={days}
+            onChange={(event) => setDays(Number(event.target.value))}
+            className="min-h-9 rounded-md border border-border bg-card px-2.5 py-1 text-sm"
+            aria-label="统计窗口"
+          >
+            {WINDOWS.map((value) => (
+              <option key={value} value={value}>近 {value} 天</option>
+            ))}
+          </select>
+        </div>
       </div>
 
       {error && <p className="mb-3 text-sm text-destructive">{error}</p>}

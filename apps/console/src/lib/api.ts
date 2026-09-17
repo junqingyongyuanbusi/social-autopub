@@ -322,6 +322,7 @@ export interface AnalyticsMetricSummary {
 
 export interface AnalyticsOverview {
   days: number;
+  lastSyncedAt?: string | null;
   metrics: AnalyticsMetricSummary[];
   series: Array<{ metric: string; points: AnalyticsMetricPoint[] }>;
   accounts: Array<{
@@ -360,6 +361,17 @@ export const fetchAnalyticsAccount = (accountId: string, days: number) =>
   );
 export const fetchAnalyticsPosts = (days: number) =>
   request<AnalyticsPostRow[]>(`/v1/analytics/posts?days=${days}`);
+
+export interface AnalyticsSyncResult {
+  synced: boolean;
+  reason?: string;
+  lastSyncedAt: string | null;
+}
+
+export const syncAnalytics = (force = false) =>
+  request<AnalyticsSyncResult>(`/v1/analytics/sync${force ? "?force=true" : ""}`, {
+    method: "POST",
+  });
 
 export function fetchWikiFxTopics(
   params: { days?: number; top?: number } = {},

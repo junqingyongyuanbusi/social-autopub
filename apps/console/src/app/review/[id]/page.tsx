@@ -383,7 +383,7 @@ export default function ReviewDetailPage() {
                 {gen.systemSuffix && (
                   <div className="mt-2 rounded-md border border-dashed border-border bg-muted/40 p-3">
                     <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                      系统发布尾注（不可编辑）
+                      系统发布尾注
                     </p>
                     <p dir="auto" className="mt-1 whitespace-pre-wrap break-all text-sm">
                       {gen.systemSuffix}
@@ -418,6 +418,32 @@ export default function ReviewDetailPage() {
                         </button>
                       </div>
                     ))}
+                  </div>
+                )}
+                {(gen.preparedMedia?.length ?? 0) > 0 && (
+                  <div className="mt-2">
+                    <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                      已上传媒体
+                    </p>
+                    <div className="mt-1 flex flex-wrap gap-2">
+                      {(gen.preparedMedia ?? []).map((media, i) => (
+                        <a
+                          key={media.id}
+                          href={media.path}
+                          target="_blank"
+                          rel="noreferrer"
+                          title="点击查看原图"
+                          className="inline-block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={media.path}
+                            alt={`已上传配图 ${i + 1}`}
+                            className="h-20 w-20 rounded-md border border-border object-cover"
+                          />
+                        </a>
+                      ))}
+                    </div>
                   </div>
                 )}
                 {gen.platform === "instagram" && draft.media[0] && (

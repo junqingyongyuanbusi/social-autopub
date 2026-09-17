@@ -83,3 +83,49 @@ test('Postiz analytics requests hit the documented endpoints via the rate gate',
     global.fetch = originalFetch;
   }
 });
+
+test('Postiz listPosts reads the delivery states for the requested window', async () => {
+  const urls: string[] = [];
+  const originalFetch = global.fetch;
+  global.fetch = (async (input: string | URL | Request) => {
+    urls.push(String(input));
+    return new Response(
+      JSON.stringify({
+        posts: [
+          {
+            id: 'post-1',
+            state: 'ERROR',
+            releaseURL: null,
+            integration: { id: 'integration-1' },
+          },
+        ],
+      }),
+      { status: 200, headers: { 'content-type': 'application/json' } },
+    );
+  }) as typeof fetch;
+  try {
+    const client = new PostizClient(
+      {
+        downloadPublicImage: async () => Buffer.from('image'),
+        createPublishVariant: async () => ({ buffer: Buffer.from('variant') }),
+        createPublishVariantFromBuffer: async () => ({ buffer: Buffer.from('variant') }),
+      } as any,
+      { acquire: async () => undefined } as any,
+    );
+
+    const posts = await client.listPosts(
+      new Date('2026-09-16T00:00:00.000Z'),
+      new Date('2026-09-18T00:00:00.000Z'),
+    );
+
+    assert.ok(
+      urls[0].endsWith(
+        '/posts?startDate=2026-09-16T00%3A00%3A00.000Z&endDate=2026-09-18T00%3A00%3A00.000Z',
+      ),
+    );
+    assert.equal(posts.length, 1);
+    assert.equal(posts[0].state, 'ERROR');
+  } finally {
+    global.fetch = originalFetch;
+  }
+});

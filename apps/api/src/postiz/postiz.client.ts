@@ -19,6 +19,14 @@ export interface PostizAnalyticsSeries {
   percentageChange?: number;
 }
 
+// Postiz 帖子状态摘要：投递结果对账用（state: PUBLISHED / ERROR / QUEUE / DRAFT）
+export interface PostizPostSummary {
+  id: string;
+  state?: string;
+  releaseURL?: string | null;
+  integrationId?: string;
+}
+
 export class PostizOutcomeUnknownError extends Error {
   constructor(message: string) {
     super(message);
@@ -79,6 +87,21 @@ export class PostizClient {
       'GET',
       `/analytics/post/${encodeURIComponent(postId)}?date=${days}`,
     );
+  }
+
+  // 列出时间窗内的帖子：本地只知道「Postiz 已受理」，真实投递状态需回读对账
+  async listPosts(
+    startDate: Date,
+    endDate: Date,
+  ): Promise<PostizPostSummary[]> {
+    const query = new URLSearchParams({
+      startDate: startDate.toISOString(),
+      endDate: endDate.toISOString(),
+    });
+    const response = await this.request<
+      { posts?: PostizPostSummary[] } | PostizPostSummary[]
+    >('GET', `/posts?${query.toString()}`);
+    return Array.isArray(response) ? response : (response?.posts ?? []);
   }
 
   async prepareMedia(

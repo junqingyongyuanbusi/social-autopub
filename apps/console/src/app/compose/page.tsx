@@ -47,7 +47,7 @@ const toMediaRef = (uploaded: MediaUploadResult): ComposeMediaRef => ({
   path: uploaded.path,
 });
 
-type PublishMode = "schedule" | "now" | "queue" | "draft";
+type PublishMode = "schedule" | "now";
 
 function PlatformIcon({
   platform,
@@ -419,9 +419,6 @@ export default function ComposePage() {
         <h1 className="text-xl font-bold tracking-tight text-foreground sm:text-2xl">
           Create Post
         </h1>
-        <p className="mt-1 text-xs text-muted-foreground">
-          create &amp; publish content
-        </p>
       </div>
 
       {options?.dryRun && (
@@ -461,7 +458,7 @@ export default function ComposePage() {
               />
               <div className="flex items-center justify-end px-4 pb-3">
                 <span className="text-xs tabular-nums text-slate-400">
-                  {text.length} chars
+                  {text.length} 字符
                 </span>
               </div>
             </div>
@@ -471,10 +468,7 @@ export default function ComposePage() {
           <div>
             <div className="mb-2 flex items-center justify-between">
               <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-                media (aspect ratios)
-              </span>
-              <span className="text-[11px] text-slate-400">
-                IG 适配 4:5 · FB/X 适配 16:9
+                media
               </span>
             </div>
 
@@ -552,7 +546,7 @@ export default function ComposePage() {
                       </div>
                     )}
                     <span className="mt-1 text-[11px] text-slate-400">
-                      Instagram 专享 · 1080×1350
+                      1080×1350
                     </span>
                   </button>
                 )}
@@ -617,7 +611,7 @@ export default function ComposePage() {
                       </div>
                     )}
                     <span className="mt-1 text-[11px] text-slate-400">
-                      Facebook &amp; X 共享 · 1200×675
+                      1200×675
                     </span>
                   </button>
                 )}
@@ -635,7 +629,7 @@ export default function ComposePage() {
                 platforms
               </span>
               <span className="text-xs text-slate-400">
-                {selectedAccounts.length} selected
+                已选 {selectedAccounts.length} 个
               </span>
             </div>
 
@@ -646,10 +640,7 @@ export default function ComposePage() {
                   <Plus className="size-5" aria-hidden />
                 </div>
                 <p className="mt-3 text-sm font-semibold text-foreground">
-                  no connected accounts
-                </p>
-                <p className="mt-1 text-xs text-slate-400">
-                  connect accounts to your profile first
+                  还没有可用账号
                 </p>
                 <Link
                   href="/accounts"
@@ -719,14 +710,12 @@ export default function ComposePage() {
               )}
             </div>
 
-            {/* 分段按钮：Schedule / Now / Queue / Draft */}
-            <div className="grid grid-cols-4 gap-1 rounded-xl border border-slate-200/90 bg-slate-100/90 p-1">
+            {/* 分段按钮：Schedule / Now */}
+            <div className="grid grid-cols-2 gap-1 rounded-xl border border-slate-200/90 bg-slate-100/90 p-1">
               {(
                 [
                   { id: "schedule", label: "Schedule" },
                   { id: "now", label: "Now" },
-                  { id: "queue", label: "Queue" },
-                  { id: "draft", label: "Draft" },
                 ] as const
               ).map((tab) => {
                 const active = publishMode === tab.id;
@@ -788,22 +777,6 @@ export default function ComposePage() {
               </div>
             )}
 
-            {publishMode === "now" && (
-              <p className="rounded-lg bg-slate-50 p-2.5 text-xs text-slate-500">
-                点击发布后，任务将直接提交至 Postiz 立即发布。
-              </p>
-            )}
-            {publishMode === "queue" && (
-              <p className="rounded-lg bg-slate-50 p-2.5 text-xs text-slate-500">
-                任务将放入发送队列，根据系统默认发布速率依次发送。
-              </p>
-            )}
-            {publishMode === "draft" && (
-              <p className="rounded-lg bg-slate-50 p-2.5 text-xs text-slate-500">
-                将文案与媒体同步至 Postiz 保存为草稿，供后续继续编辑。
-              </p>
-            )}
-
             {/* 提交主按钮 */}
             <div className="pt-2">
               <button
@@ -823,11 +796,7 @@ export default function ComposePage() {
                   ? "Submitting…"
                   : publishMode === "schedule"
                     ? "Schedule Post"
-                    : publishMode === "draft"
-                      ? "Save Draft"
-                      : publishMode === "queue"
-                        ? "Add to Queue"
-                        : "Publish Now"}
+                    : "Publish Now"}
               </button>
 
               {blockingReason && (
@@ -870,7 +839,7 @@ export default function ComposePage() {
               <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
                 {publishMode === "schedule" && calculatedUtcDate
                   ? `任务已排期至 ${scheduleDateTime.replace("T", " ")} (${timezone})。`
-                  : "发布任务已成功提交至发布引擎。"}
+                  : null}
                 目标平台：
                 {result.platforms
                   .map((platform) => PLATFORM_LABEL[platform] ?? platform)
