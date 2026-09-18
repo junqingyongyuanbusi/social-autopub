@@ -1,0 +1,20 @@
+/* 站点主题：品牌色、中文字体栈与正文可读性微调（仅覆盖 Starlight 设计变量） */
+:root {
+  --sl-content-width: 52rem;
+  --sl-font:
+    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC",
+    sans-serif;
+  --sl-font-mono:
+    ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+    "Liberation Mono", monospace;
+}
+
+/* 中文正文行高与段落间距略放大，长文更易读 */
+.sl-markdown-content {
+  line-height: 1.8;
+}
+
+.sl-markdown-content p {
+  margin-block: 0.9em;
+}

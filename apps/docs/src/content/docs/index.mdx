@@ -1,0 +1,218 @@
+---
+title: 社媒自动发布
+description: 多语言内容从采集、生成、审核到发布的完整链路文档
+template: splash
+hero:
+  tagline: Notion / HTTP / WikiFX 多语言内容 → LLM 生成 → 人工审核 → Postiz 发布到 X / Instagram / Facebook
+  actions:
+    - text: 快速了解系统
+      link: /start/overview/
+      icon: right-arrow
+      variant: primary
+    - text: 本地跑起来
+      link: /start/local-development/
+      icon: rocket
+---
+
+import { Card, CardGrid, LinkCard } from '@astrojs/starlight/components';
+
+## 按角色选择入口
+
+<CardGrid>
+  <LinkCard
+    title="我是运营"
+    description="选题、撰写、审核、发布与数据分析的日常操作"
+    href="/console/dashboard/"
+  />
+  <LinkCard
+    title="我是工程师"
+    description="架构边界、数据来源接入、本地开发与交付流程"
+    href="/start/overview/"
+  />
+  <LinkCard
+    title="我要部署"
+    description="自托管 Docker 或 Railway 环境的完整配置说明"
+    href="/deploy/self-hosted/"
+  />
+  <LinkCard
+    title="接入数据源"
+    description="Notion 轮询、HTTP 推送与 WikiFX 热点的接入约定"
+    href="/sources/notion/"
+  />
+</CardGrid>
+
+## 系统一览
+
+<CardGrid>
+  <Card title="多来源采集" icon="pencil">
+    Notion 数据库轮询、HTTP `/v1/ingest` 推送、WikiFX 热点选题三条入口，统一归一为内容任务。
+  </Card>
+  <Card title="LLM 生成" icon="star">
+    按语言 × 平台生成平台化文案，Prompt 版本化可回滚，生成质量可审计。
+  </Card>
+  <Card title="人工审核" icon="approve-check">
+    生成内容默认进入审核工作台；除非显式授权，绝不自动发布。
+  </Card>
+  <Card title="自动路由发布" icon="rocket">
+    语言 × 类型 × 平台的路由矩阵决定目标账号，经 Postiz 发布并提供投递对账与数据分析。
+  </Card>
+</CardGrid>
+---
+title: 概述
+description: 系统能力、模块划分与整体数据流
+---
+
+社媒自动发布系统把「内容来源 → 多语言生成 → 人工审核 → 多平台发布 → 效果分析」串成一条可审计的流水线。
+
+## 它能做什么
+
+- 从 **Notion 数据库**、**HTTP 推送**或 **WikiFX 热点**采集素材，统一入库并做幂等去重
+- 用 LLM 按 **10 种语言 × 3 个平台**（X / Instagram / Facebook）生成平台化文案
+- 生成结果进入**人工审核工作台**：逐平台编辑文案与配图，通过后才进入发布
+- 按**路由矩阵**（语言 × 内容类型 × 平台 → 账号）自动拆分发布任务，经 **Postiz** 投递
+- 采集发布数据与社媒指标，提供**数据分析看板**与**投递对账**
+
+## 模块划分
+
+| 模块 | 说明 |
+| --- | --- |
+| `apps/api` | NestJS 单体：Notion 轮询、WikiFX 热点读取、HTTP ingest、LLM 生成、路由矩阵、Postiz 发布（BullMQ worker 同进程） |
+| `apps/console` | Next.js 运营控制台：热点选题 / 内容队列 / 审核工作台 / 发布记录 / 数据分析 / 设置 |
+| `apps/wikifx-content` | WikiFX 正文抓取 sidecar：`curl_cffi` 抓取、四级正文抽取、SQLite 缓存 |
+| `apps/docs` | 本站：Astro Starlight 文档站（静态，部署于 Cloudflare Pages） |
+
+## 数据流
+
+```
+Notion(10语言×2表) ─┐                          ┌─> X
+HTTP /v1/ingest ────┼─> api ─> LLM 生成 ─> 审核工作台 ─> Postiz ─┤─> Instagram
+WikiFX 热点 ─> 选题 ─┘   (轮询/队列)        (console)            └─> Facebook
+          │              Postgres(状态)  Redis(队列: BullMQ)
+          └─> wikifx-content sidecar（抓取 + SQLite 正文缓存）
+```
+
+## 关键设计约束
+
+- **人工审核是默认边界**：生成内容进入 `REVIEW`，除非显式开启 `AUTO_PUBLISH`，绝不自动发布
+- **发布幂等**：同一内容同平台同账号只发一次；结果未知的任务转入人工对账而不自动重发
+- **状态单点**：PostgreSQL/Prisma 是唯一的持久化真相；Redis 只承载队列与限流
+- **凭据隔离**：所有第三方凭据只存在于 API 服务端，浏览器永不接触
+
+## 下一步
+
+- 理解状态机与路由矩阵：[核心概念](/start/concepts/)
+- 在本地把系统跑起来：[本地开发](/start/local-development/)
+---
+title: 核心概念
+description: 内容状态机、路由矩阵、审核边界与幂等发布
+---
+
+理解以下四个概念，就能读懂系统的大部分行为。
+
+## 内容状态机
+
+每条内容（`ContentItem`）在生命周期中经历以下状态：
+
+```
+PENDING ──> GENERATING ──> REVIEW ──> APPROVED ──> PUBLISHING ──> PUBLISHED
+                │            │                          │
+                │            └──> REJECTED              └──> FAILED
+                │
+                └──> FAILED（生成失败，可重新入队）
+
+SUPERSEDED：同一来源内容出现新版本，旧任务自动作废
+```
+
+- `PENDING → GENERATING`：内容入库后进入生成队列（BullMQ）
+- `REVIEW`：生成完成，等待人工审核；这是**默认的必经关口**
+- `APPROVED → PUBLISHING`：审核通过后按路由拆分为发布子任务
+- `PUBLISHED`：全部子任务收敛为成功
+- `FAILED`：生成或发布失败，失败原因记录在内容与子任务两级
+
+## 发布子任务（PublishJob）
+
+一条内容可能对应多个平台/账号的发布子任务，每个子任务独立跟踪：
+
+| 子任务状态 | 含义 |
+| --- | --- |
+| `queued` | 已入队，等待 worker 领取 |
+| `publishing` | 已被 worker 原子领取，正在调用 Postiz |
+| `sent` | Postiz 已受理（注意：不等于社媒投递成功，见投递对账） |
+| `failed` | 失败，可在发布记录页重试 |
+| `unknown` | 客户端未收到响应，结果未知，需要人工对账 |
+| `cancelled` | 因内容版本更新而作废 |
+
+## 路由矩阵
+
+路由规则形如 `语言 × 内容类型 × 平台 → 账号`，支持 `*` 通配内容类型，同一命中可配置多行（`priority` 决定优劣）。
+
+- 审核通过时按路由矩阵生成**发布目标快照**（`publishTargets`），之后即使路由配置变化，不影响已批准的内容
+- 手动撰写内容跳过路由，直接指定目标账号
+
+## 审核边界与发布策略
+
+| 变量 | 作用 |
+| --- | --- |
+| `DRY_RUN=true` | 只让 Postiz 生成草稿，不推送社媒正式外网 |
+| `AUTO_PUBLISH=true` | 跳过人工审核自动发布（WikiFX 与历史重生成内容除外，它们始终强制审核） |
+
+:::caution[上线纪律]
+首次部署保持 `DRY_RUN=true`，走通「采集 → 审核 → 出草稿」后再切换 `false`。`AUTO_PUBLISH=true` 仅在明确授权后使用。
+:::
+
+## 幂等与对账
+
+- 内容幂等：`(source, externalId, contentHash)` 唯一，同一素材重复推送不会重复生成
+- 发布幂等：worker 原子领取任务，同一子任务并发执行会被拦截
+- 投递对账：每 30 分钟回读 Postiz 帖子状态，把投递失败（`state=ERROR`）回退为可重试状态
+---
+title: 本地开发
+description: 准备依赖、启动 api 与 console、常用脚本
+---
+
+## 前置要求
+
+- Node.js 22（仓库使用 pnpm 9.15.0，经 `packageManager` 字段锁定）
+- PostgreSQL 与 Redis（可参考根目录 `docker-compose.yml` 单独起）
+- 第三方凭据：Notion、LLM（OpenRouter 或 Anthropic）、Postiz（本地仅调试可略）
+
+## 安装与初始化
+
+```bash
+pnpm install --frozen-lockfile
+
+# 生成 Prisma Client 并应用迁移
+pnpm db:generate
+pnpm db:migrate
+```
+
+环境变量参照根目录 `.env.example`（每个变量带注释）。**任何情况下不要把真实密钥提交进仓库。**
+
+## 启动
+
+```bash
+# API（含 BullMQ worker 与定时任务，同进程）
+pnpm dev:api
+
+# 控制台
+pnpm dev:console
+
+# 文档站（本站在 apps/docs）
+pnpm --filter docs dev
+```
+
+## 常用脚本
+
+| 命令 | 作用 |
+| --- | --- |
+| `pnpm build` | 构建全部包 |
+| `pnpm --filter api build` | 仅构建 API |
+| `pnpm --filter api test` | 运行 API 测试（node:test） |
+| `pnpm --filter console build` | 仅构建控制台 |
+| `pnpm --filter docs build` | 仅构建文档站 |
+
+## 安全边界
+
+- 本地开发同样遵守「不读不写 `.env`、不触发真实发布」的纪律
+- 调试发布链路时保持 `DRY_RUN=true`
+- 需要联调真实发布时，单独获得授权并在受控环境进行
