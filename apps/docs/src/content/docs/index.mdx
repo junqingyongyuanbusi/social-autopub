@@ -5,13 +5,18 @@ template: splash
 hero:
   tagline: Notion / HTTP / WikiFX 多语言内容 → LLM 生成 → 人工审核 → Postiz 发布到 X / Instagram / Facebook
   actions:
-    - text: 快速了解系统
-      link: /start/overview/
+    - text: 第一次使用，从这里开始
+      link: /prepare/checklist/
       icon: right-arrow
       variant: primary
+    - text: 快速了解系统
+      link: /start/overview/
+      icon: information
+      variant: minimal
     - text: 本地跑起来
       link: /start/local-development/
       icon: rocket
+      variant: minimal
 ---
 
 import { Card, CardGrid, LinkCard } from '@astrojs/starlight/components';
@@ -20,28 +25,48 @@ import { Card, CardGrid, LinkCard } from '@astrojs/starlight/components';
 
 <CardGrid>
   <LinkCard
-    title="我是运营"
-    description="选题、撰写、审核、发布与数据分析的日常操作"
+    title="我第一次用，不懂技术"
+    description="必须先办的准备工作、要提交给管理员的信息，以及从零发出第一条帖子"
+    href="/prepare/checklist/"
+  />
+  <LinkCard
+    title="我是运营，已经能登录"
+    description="选题、撰写、审核、发布与数据分析的逐页操作说明"
     href="/console/dashboard/"
+  />
+  <LinkCard
+    title="我是管理员"
+    description="平台开发者应用配置、用户与账号授权、路由矩阵与运维手册"
+    href="/prepare/meta-developer/"
   />
   <LinkCard
     title="我是工程师"
     description="架构边界、数据来源接入、本地开发与交付流程"
     href="/start/overview/"
   />
-  <LinkCard
-    title="我要部署"
-    description="自托管 Docker 或 Railway 环境的完整配置说明"
-    href="/deploy/self-hosted/"
-  />
-  <LinkCard
-    title="接入数据源"
-    description="Notion 轮询、HTTP 推送与 WikiFX 热点的接入约定"
-    href="/sources/notion/"
-  />
+</CardGrid>
+
+## 三个最常见的问题
+
+<CardGrid>
+  <Card title="为什么我绑不上账号？" icon="warning">
+    Meta 应用在开发模式下，只有被加进授权名单的账号才能绑定。
+    你需要把 Facebook 主页链接和数字 ID 交给管理员 —— 见
+    [提交给管理员的信息清单](/prepare/account-info/)。
+  </Card>
+  <Card title="为什么帖子只有我自己能看到？" icon="warning">
+    Meta 应用还在**开发模式**。开发模式下帖子对其他人不可见，图片还会丢失。
+    管理员需要把应用切到 **Live** —— 见 [Meta 开发者准备](/prepare/meta-developer/#开发模式-vs-上线模式)。
+  </Card>
+  <Card title="系统说已发布，社媒上却没有？" icon="warning">
+    「已提交」只表示 Postiz 受理了任务，不等于平台投递成功。
+    系统每 30 分钟自动回读状态并把失败的退回可重试 —— 见
+    [发布记录与日历](/console/records-calendar/#投递对账说明)。
+  </Card>
 </CardGrid>
 
 ## 系统一览
+
 
 <CardGrid>
   <Card title="多来源采集" icon="pencil">

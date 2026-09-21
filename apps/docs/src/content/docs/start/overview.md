@@ -5,6 +5,11 @@ description: 系统能力、模块划分与整体数据流
 
 社媒自动发布系统把「内容来源 → 多语言生成 → 人工审核 → 多平台发布 → 效果分析」串成一条可审计的流水线。
 
+:::tip[第一次接触这个系统？]
+系统不直接连社媒平台，中间经过 **Postiz** 发布中台，而平台（尤其 Meta）要求先完成开发者应用与账号授权。
+**不做这些准备工作就绑不上账号、发不出帖子。** 请先读 [接入前准备总览](/prepare/checklist/)。
+:::
+
 ## 它能做什么
 
 - 从 **Notion 数据库**、**HTTP 推送**或 **WikiFX 热点**采集素材，统一入库并做幂等去重
@@ -21,6 +26,9 @@ description: 系统能力、模块划分与整体数据流
 | `apps/console` | Next.js 运营控制台：热点选题 / 内容队列 / 审核工作台 / 发布记录 / 数据分析 / 设置 |
 | `apps/wikifx-content` | WikiFX 正文抓取 sidecar：`curl_cffi` 抓取、四级正文抽取、SQLite 缓存 |
 | `apps/docs` | 本站：Astro Starlight 文档站（静态，部署于 Cloudflare Pages） |
+
+外部依赖：**Postiz** 是独立部署的发布中台，负责持有各平台 OAuth 授权并实际投递帖子。
+本系统通过 Postiz 的 Public API 与它交互，自身不持有平台凭据。
 
 ## 数据流
 
@@ -41,5 +49,6 @@ WikiFX 热点 ─> 选题 ─┘   (轮询/队列)        (console)            �
 
 ## 下一步
 
+- **第一次使用系统**（包括必须先办的平台侧准备）：[接入前准备总览](/prepare/checklist/)
 - 理解状态机与路由矩阵：[核心概念](/start/concepts/)
 - 在本地把系统跑起来：[本地开发](/start/local-development/)

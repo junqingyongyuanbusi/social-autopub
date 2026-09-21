@@ -5,10 +5,17 @@ description: 在 Railway 上部署 Postiz 与本系统
 
 ## Postiz（发布后端）
 
+:::caution[平台侧准备是前置条件]
+部署 Postiz 之前（或同时），需要先在各平台注册开发者应用并拿到凭据：
+[Meta 开发者准备](/prepare/meta-developer/) · [X 开发者准备](/prepare/x-developer/)。
+第 4 步的 OAuth 绑定依赖这些凭据，没有它们绑不上任何账号。
+:::
+
 1. 使用官方 Railway 模板部署 Postiz（锁定版本、避开 Temporal 依赖）
 2. 配置 `MAIN_URL` / `FRONTEND_URL` / `NEXT_PUBLIC_BACKEND_URL`
 3. 管理员创建完成后设置 `DISABLE_REGISTRATION=true`
-4. 在 Postiz 内完成各社媒账号的 OAuth 绑定，并在 Settings 生成 API Key
+4. 配置平台应用凭据（`FACEBOOK_APP_ID` / `FACEBOOK_APP_SECRET` / `X_API_KEY` / `X_API_SECRET` 等），
+   在 Postiz 内完成各社媒账号的 OAuth 绑定，并在 Settings 生成 API Key
 
 ## 本系统服务
 

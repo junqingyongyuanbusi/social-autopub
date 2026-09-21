@@ -34,6 +34,16 @@ export default defineConfig({
       plugins: [starlightLlmsTxt()],
       sidebar: [
         {
+          label: '接入前准备',
+          items: [
+            { label: '准备清单（先看这里）', slug: 'prepare/checklist' },
+            { label: '提交给管理员的信息', slug: 'prepare/account-info' },
+            { label: '新手上手', slug: 'prepare/first-post' },
+            { label: 'Meta 开发者准备', slug: 'prepare/meta-developer' },
+            { label: 'X 开发者准备', slug: 'prepare/x-developer' },
+          ],
+        },
+        {
           label: '开始',
           items: [
             { label: '概述', slug: 'start/overview' },
@@ -51,6 +61,7 @@ export default defineConfig({
             { label: '发布记录与日历', slug: 'console/records-calendar' },
             { label: '数据分析', slug: 'console/analytics' },
             { label: '账号与路由', slug: 'console/accounts-routing' },
+            { label: '媒体工具', slug: 'console/media-tools' },
             { label: 'Prompt 与设置', slug: 'console/prompts-settings' },
           ],
         },
