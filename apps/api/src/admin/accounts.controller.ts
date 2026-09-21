@@ -11,6 +11,8 @@ const accountPatchSchema = z.object({
   market: z.string().max(20).nullable().optional(),
   ownerId: z.string().nullable().optional(),
   note: z.string().max(200).nullable().optional(),
+  // 置空即回到未探测状态，由发布链路重新探测账号能力
+  textLimit: z.number().int().positive().max(25000).nullable().optional(),
 });
 
 const assignSchema = z.object({
@@ -55,7 +57,7 @@ export class AccountsController {
     return this.list(user);
   }
 
-  // 台账信息：市场 / 负责人 / 备注（仅 admin）
+  // 台账信息：市场 / 负责人 / 备注 / 文本上限（仅 admin）
   @Patch(':id')
   @UseGuards(AdminRoleGuard)
   async update(@Param('id') id: string, @Body() body: unknown) {

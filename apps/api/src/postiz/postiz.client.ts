@@ -34,6 +34,18 @@ export class PostizOutcomeUnknownError extends Error {
   }
 }
 
+// Postiz 返回非 2xx 时抛出：保留状态码与响应体，供调用方识别具体拒绝原因
+// （如平台侧的长度超限，见 publish/length-rejection.ts）
+export class PostizRequestError extends Error {
+  constructor(
+    readonly status: number,
+    readonly responseBody: string,
+  ) {
+    super(`postiz ${status}`);
+    this.name = PostizRequestError.name;
+  }
+}
+
 // Postiz Public API 薄封装。若日后弃用 Postiz，仅需替换此文件实现
 // 注意：Postiz 默认限流 30 req/h，自托管可调 API_LIMIT；调用方（publish.processor）已做队列节流
 @Injectable()
@@ -278,7 +290,7 @@ export class PostizClient {
           `Postiz 返回 ${res.status}，发送结果未知，需要人工对账`,
         );
       }
-      throw new Error(`postiz ${res.status}`);
+      throw new PostizRequestError(res.status, text);
     }
     try {
       return (await res.json()) as T;

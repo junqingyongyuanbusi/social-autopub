@@ -56,7 +56,7 @@ function serviceHarness(options: {
   };
   const service = new GenerationService(
     prisma as any,
-    { platformsFor: async () => ["x"], textLimitFor: async () => null } as any,
+    { platformsFor: async () => ["x"], textLimitFor: async () => 280 } as any,
     {
       targetSnapshot: async () => [
         { platform: "x", postizIntegrationId: "integration-1" },

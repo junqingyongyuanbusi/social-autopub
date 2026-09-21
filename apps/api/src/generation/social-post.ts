@@ -94,16 +94,19 @@ export function measurePlatformContent(platform: string, content: string): numbe
   return content.length;
 }
 
-// 平台默认文本上限：X 免费账号为 280 加权字符。
-// 订阅账号可发长文，由 Account.textLimit 覆盖（见 platformLimit 的 accountTextLimit 参数）。
+// X 免费账号的加权字符上限；确认为非订阅账号后写入 Account.textLimit
 export const X_DEFAULT_LIMIT = 280;
+// 尚未探测过的账号按此上限乐观放行：订阅账号可直接发长文，
+// 非订阅账号会被平台拒绝一次，随后由发布链路降级为 X_DEFAULT_LIMIT（见 publish.processor）
+export const X_PROBE_LIMIT = 4000;
 
-// accountTextLimit 来自 Account.textLimit：订阅账号填实际上限，留空则回落平台默认值。
+// accountTextLimit 来自 Account.textLimit：已探测过的账号用其实际上限，
+// 为空表示尚未探测，取乐观值。
 export function platformLimit(
   platform: string,
   accountTextLimit?: number | null,
 ): number | null {
-  if (platform === "x") return accountTextLimit ?? X_DEFAULT_LIMIT;
+  if (platform === "x") return accountTextLimit ?? X_PROBE_LIMIT;
   if (platform === "instagram") return 2200;
   if (platform === "facebook") return 5000;
   return null;

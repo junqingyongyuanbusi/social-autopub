@@ -11,8 +11,12 @@ import { QUEUE_PUBLISH, PublishJobData } from "../queues";
 import {
   composeSocialPost,
   ContentValidationError,
+  measurePlatformContent,
+  X_DEFAULT_LIMIT,
+  X_PROBE_LIMIT,
 } from "../generation/social-post"
 import { validateForPlatform } from "../generation/validators"
+import { isLengthRejection } from "./length-rejection";
 import { concludePublishRevision } from "./finalize-revision";
 
 // 发布 worker：限流 25/小时对齐现有 Postiz 发布配额策略。
@@ -99,10 +103,10 @@ export class PublishProcessor extends WorkerHost {
         gen.content,
         pj.contentItem,
       ).content;
-      // 按实际目标账号取文本上限：订阅账号可发长文，未设则回落平台默认值
+      // 按实际目标账号取文本上限；textLimit 为空表示尚未探测，由 platformLimit 取乐观值
       const account = await this.prisma.account.findUnique({
         where: { postizIntegrationId: pj.postizIntegrationId },
-        select: { textLimit: true },
+        select: { id: true, textLimit: true },
       });
       const validationProblems = validateForPlatform(
         pj.platform,
@@ -114,17 +118,48 @@ export class PublishProcessor extends WorkerHost {
         throw new ContentValidationError(validationProblems.join("；"))
       }
 
-      const { postId } = await this.postiz.createPost({
-        integrationId: pj.postizIntegrationId,
-        platform: pj.platform,
-        content: finalContent,
-        preparedMedia,
-        publishAt: pj.scheduledAt,
-        settings: gen.settings as object | null,
-        dryRun: process.env.DRY_RUN === "true",
-        requestBudgetAcquired: true,
-      });
+      const measuredLength = measurePlatformContent(pj.platform, finalContent);
+      // 超出免费账号上限的正文才有探测价值：发成功说明是订阅账号，被拒则说明不是
+      const probing =
+        pj.platform === "x" &&
+        account !== null &&
+        account.textLimit === null &&
+        measuredLength > X_DEFAULT_LIMIT;
+
+      let postId: string | undefined;
+      try {
+        ({ postId } = await this.postiz.createPost({
+          integrationId: pj.postizIntegrationId,
+          platform: pj.platform,
+          content: finalContent,
+          preparedMedia,
+          publishAt: pj.scheduledAt,
+          settings: gen.settings as object | null,
+          dryRun: process.env.DRY_RUN === "true",
+          requestBudgetAcquired: true,
+        }));
+      } catch (publishError) {
+        if (!probing || !isLengthRejection(publishError)) throw publishError;
+        // 平台以长度为由拒绝：确认为非订阅账号，落库后按 280 重新校验。
+        // 正文必然超限，因此转 ContentValidationError 走人工审核，不重复请求 Postiz。
+        await this.markAccountTextLimit(account.id, X_DEFAULT_LIMIT);
+        this.logger.warn(
+          `account ${account.id} rejected ${measuredLength} weighted chars; capped at ${X_DEFAULT_LIMIT}`,
+        );
+        throw new ContentValidationError(
+          validateForPlatform(
+            pj.platform,
+            finalContent,
+            gen.content,
+            X_DEFAULT_LIMIT,
+          ).join("；"),
+        );
+      }
       remoteAccepted = true;
+      if (probing) {
+        // 长文被平台接受：锁定为订阅账号，后续不再探测
+        await this.markAccountTextLimit(account.id, X_PROBE_LIMIT);
+      }
       const persisted = await this.prisma.publishJob.updateMany({
         where: {
           id: pj.id,
@@ -222,6 +257,14 @@ export class PublishProcessor extends WorkerHost {
       }
       throw e; // 非最终次由 BullMQ 按退避重试
     }
+  }
+
+  // 探测结果落库：仅在账号尚未探测时写入，使并发发布下的重复探测幂等
+  private async markAccountTextLimit(accountId: string, limit: number) {
+    await this.prisma.account.updateMany({
+      where: { id: accountId, textLimit: null },
+      data: { textLimit: limit },
+    });
   }
 
   private preparedMedia(value: unknown): PreparedPostizMedia[] {

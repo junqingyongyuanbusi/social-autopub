@@ -158,6 +158,7 @@ export interface Account {
   owner?: { id: string; name: string } | null;
   note?: string | null;
   status: string;
+  textLimit?: number | null;
   lastSyncedAt?: string | null;
   userLinks?: UserAccountLink[];
 }

@@ -12,7 +12,7 @@ export default function AccountsPage() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [users, setUsers] = useState<ConsoleUser[]>([]);
   const [editing, setEditing] = useState<string>(''); // account id
-  const [form, setForm] = useState({ market: '', ownerId: '', note: '' });
+  const [form, setForm] = useState({ market: '', ownerId: '', note: '', textLimit: '' });
   const [assigned, setAssigned] = useState<Set<string>>(new Set());
   const [syncing, setSyncing] = useState(false);
   const [deleting, setDeleting] = useState(''); // 删除中的 account id
@@ -89,7 +89,12 @@ export default function AccountsPage() {
 
   const startEdit = (account: Account) => {
     setEditing(account.id);
-    setForm({ market: account.market ?? '', ownerId: account.ownerId ?? '', note: account.note ?? '' });
+    setForm({
+      market: account.market ?? '',
+      ownerId: account.ownerId ?? '',
+      note: account.note ?? '',
+      textLimit: account.textLimit?.toString() ?? '',
+    });
     setAssigned(new Set(account.userLinks?.map((l) => l.userId) ?? []));
   };
 
@@ -100,6 +105,7 @@ export default function AccountsPage() {
         market: form.market.trim().toLowerCase() || null,
         ownerId: form.ownerId || null,
         note: form.note.trim() || null,
+        textLimit: form.textLimit.trim() ? Number(form.textLimit.trim()) : null,
       });
       await putAction(`/v1/accounts/${account.id}/users`, {
         links: [...assigned].map((userId) => ({ userId, canEdit: true, canPublish: true, canReview: true })),
@@ -223,6 +229,21 @@ export default function AccountsPage() {
                       className="w-full rounded-md border border-border px-2 py-1.5"
                     />
                   </label>
+                  {account.platform === 'x' && (
+                    <label className="block">
+                      <span className="mb-0.5 block text-muted-foreground">
+                        文本上限（留空自动探测，订阅账号 4000 / 免费账号 280）
+                      </span>
+                      <input
+                        type="number"
+                        min={1}
+                        max={25000}
+                        value={form.textLimit}
+                        onChange={(e) => setForm((f) => ({ ...f, textLimit: e.target.value }))}
+                        className="w-full rounded-md border border-border px-2 py-1.5"
+                      />
+                    </label>
+                  )}
                   <div className="flex gap-2 pt-1">
                     <button
                       onClick={() => saveEdit(account)}
@@ -241,6 +262,12 @@ export default function AccountsPage() {
                   <p>负责人：{account.owner?.name ?? '未指定'}</p>
                   <p>授权用户：{account.userLinks?.length ? account.userLinks.map((l) => l.user?.name).join('、') : '仅管理员'}</p>
                   {account.note && <p>备注：{account.note}</p>}
+                  {account.platform === 'x' && (
+                    <p>
+                      文本上限：
+                      {account.textLimit ? `${account.textLimit} 加权字符` : '待探测（首次长文发布时自动判定）'}
+                    </p>
+                  )}
                   <p className="tabular-nums">
                     上次同步：{account.lastSyncedAt ? new Date(account.lastSyncedAt).toLocaleString('zh-CN') : '—'}
                   </p>

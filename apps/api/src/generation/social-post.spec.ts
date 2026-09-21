@@ -83,11 +83,22 @@ test("does not count URL fragments in editable body as hashtags", () => {
   );
 });
 
-test("falls back to the 280 default when the account has no text limit", () => {
+test("optimistically allows long posts for accounts that have not been probed", () => {
   const body = "界".repeat(150); // 加权 300
-  assert.equal(platformLimit("x", null), 280);
+  assert.equal(platformLimit("x", null), 4000);
+  assert.equal(
+    validateForPlatform("x", body, body, null).some((problem) =>
+      problem.includes("超出 X 长度限制"),
+    ),
+    false,
+  );
+});
+
+test("keeps the 280 limit once an account is known to be free-tier", () => {
+  const body = "界".repeat(150); // 加权 300
+  assert.equal(platformLimit("x", 280), 280);
   assert.match(
-    validateForPlatform("x", body, body, null).join(""),
+    validateForPlatform("x", body, body, 280).join(""),
     /超出 X 长度限制（加权 \d+\/280）/,
   );
 });
