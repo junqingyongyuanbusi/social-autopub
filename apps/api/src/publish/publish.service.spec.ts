@@ -86,6 +86,7 @@ test("prepare reuses generation preparedMedia and skips secondary postiz prepara
 
   const service = new PublishService(
     {
+      account: { findMany: async () => [] },
       contentItem: {
         findUniqueOrThrow: async () => contentItem,
         update: async () => ({}),

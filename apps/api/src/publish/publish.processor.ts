@@ -99,10 +99,16 @@ export class PublishProcessor extends WorkerHost {
         gen.content,
         pj.contentItem,
       ).content;
+      // 按实际目标账号取文本上限：订阅账号可发长文，未设则回落平台默认值
+      const account = await this.prisma.account.findUnique({
+        where: { postizIntegrationId: pj.postizIntegrationId },
+        select: { textLimit: true },
+      });
       const validationProblems = validateForPlatform(
         pj.platform,
         finalContent,
         gen.content,
+        account?.textLimit ?? null,
       )
       if (validationProblems.length) {
         throw new ContentValidationError(validationProblems.join("；"))

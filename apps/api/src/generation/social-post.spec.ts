@@ -4,6 +4,7 @@ import {
   composeSocialPost,
   exposureReviewLinkProblem,
   measurePlatformContent,
+  platformLimit,
   publicPublishUrl,
   systemSuffix,
 } from "./social-post";
@@ -77,6 +78,26 @@ test("does not count URL fragments in editable body as hashtags", () => {
   assert.equal(
     validateForPlatform("x", composeSocialPost("x", body, baseItem).content, body).some(
       (problem) => problem.includes("hashtag"),
+    ),
+    false,
+  );
+});
+
+test("falls back to the 280 default when the account has no text limit", () => {
+  const body = "界".repeat(150); // 加权 300
+  assert.equal(platformLimit("x", null), 280);
+  assert.match(
+    validateForPlatform("x", body, body, null).join(""),
+    /超出 X 长度限制（加权 \d+\/280）/,
+  );
+});
+
+test("honors the account text limit for subscription accounts", () => {
+  const body = "界".repeat(150); // 加权 300，低于订阅账号上限
+  assert.equal(platformLimit("x", 4000), 4000);
+  assert.equal(
+    validateForPlatform("x", body, body, 4000).some((problem) =>
+      problem.includes("超出 X 长度限制"),
     ),
     false,
   );

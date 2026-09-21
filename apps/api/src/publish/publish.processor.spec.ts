@@ -40,6 +40,7 @@ test("publishes the composed body with localized CTA and .me URL", async () => {
       update: async () => ({}),
       findMany: async () => [{ status: "sent" }],
     },
+    account: { findUnique: async () => null },
     contentItem: {
       updateMany: async () => ({ count: 1 }),
     },
@@ -101,6 +102,7 @@ test("unknown Postiz outcome is not automatically retried", async () => {
         update: async () => ({}),
         findMany: async () => [],
       },
+      account: { findUnique: async () => null },
       contentItem: {
         updateMany: async ({ data }: any) => {
           if (data.status) contentStatus = data.status;
@@ -169,6 +171,7 @@ test("remote acceptance never escapes to Bull retry when local compensation also
         },
         findMany: async () => [],
       },
+      account: { findUnique: async () => null },
       contentItem: { updateMany: async () => ({ count: 0 }) },
     } as any,
     {
@@ -231,6 +234,7 @@ test("manual content whose generation only has prepared media still publishes", 
         update: async () => ({}),
         findMany: async () => [{ status: "sent" }],
       },
+      account: { findUnique: async () => null },
       contentItem: { updateMany: async () => ({ count: 1 }) },
     } as any,
     {
@@ -290,6 +294,7 @@ test("manual content without a stored snapshot is still rejected before Postiz",
         update: async () => ({}),
         findMany: async () => [{ status: "failed" }],
       },
+      account: { findUnique: async () => null },
       contentItem: { updateMany: async () => ({ count: 1 }) },
     } as any,
     {

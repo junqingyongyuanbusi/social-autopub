@@ -207,18 +207,35 @@ export class PublishService {
     }
 
     const targetPlatforms = new Set(targets.map((target) => target.platform));
+    // 预取各目标账号的文本上限（订阅账号可发长文），未设则回落平台默认值
+    const accounts = await this.prisma.account.findMany({
+      where: { postizIntegrationId: { in: targets.map((t) => t.postizIntegrationId) } },
+      select: { postizIntegrationId: true, textLimit: true },
+    });
+    const textLimitByIntegration = new Map(
+      accounts.map((account) => [account.postizIntegrationId, account.textLimit]),
+    );
+    const textLimitFor = (platform: string) => {
+      const target = targets.find((t) => t.platform === platform);
+      return target
+        ? textLimitByIntegration.get(target.postizIntegrationId) ?? null
+        : null;
+    };
     const validationProblems = item.generations
       .filter((generation) => targetPlatforms.has(generation.platform))
       .flatMap((generation) => {
+        const textLimit = textLimitFor(generation.platform);
         const finalContent = composeSocialPost(
           generation.platform,
           generation.content,
           item,
+          textLimit,
         ).content;
         return validateForPlatform(
           generation.platform,
           finalContent,
           generation.content,
+          textLimit,
         ).map((problem) => `${generation.platform}: ${problem}`);
       });
     if (validationProblems.length) {

@@ -94,8 +94,16 @@ export function measurePlatformContent(platform: string, content: string): numbe
   return content.length;
 }
 
-export function platformLimit(platform: string): number | null {
-  if (platform === "x") return 280;
+// 平台默认文本上限：X 免费账号为 280 加权字符。
+// 订阅账号可发长文，由 Account.textLimit 覆盖（见 platformLimit 的 accountTextLimit 参数）。
+export const X_DEFAULT_LIMIT = 280;
+
+// accountTextLimit 来自 Account.textLimit：订阅账号填实际上限，留空则回落平台默认值。
+export function platformLimit(
+  platform: string,
+  accountTextLimit?: number | null,
+): number | null {
+  if (platform === "x") return accountTextLimit ?? X_DEFAULT_LIMIT;
   if (platform === "instagram") return 2200;
   if (platform === "facebook") return 5000;
   return null;
@@ -105,11 +113,12 @@ export function composeSocialPost(
   platform: string,
   body: string,
   item: SocialPostItem,
+  accountTextLimit?: number | null,
 ): ComposedPost {
   const suffix = systemSuffix(item);
   const content = suffix ? `${body.trimEnd()}\n\n${suffix}` : body;
   const measuredLength = measurePlatformContent(platform, content);
-  const limit = platformLimit(platform);
+  const limit = platformLimit(platform, accountTextLimit);
   const problems: string[] = [];
   if (limit !== null && measuredLength > limit) {
     problems.push(`超出 ${platform} 长度限制（${measuredLength}/${limit}），请精简正文`);
@@ -124,8 +133,12 @@ export function composeSocialPost(
   };
 }
 
-export function bodyBudget(platform: string, item: SocialPostItem): number | null {
-  const limit = platformLimit(platform);
+export function bodyBudget(
+  platform: string,
+  item: SocialPostItem,
+  accountTextLimit?: number | null,
+): number | null {
+  const limit = platformLimit(platform, accountTextLimit);
   if (limit === null) return null;
   const suffix = systemSuffix(item);
   if (!suffix) return limit;

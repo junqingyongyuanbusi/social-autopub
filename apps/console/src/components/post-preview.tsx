@@ -16,7 +16,7 @@ import {
 import { PlatformIcon } from "@/components/platform-icon";
 
 // 预览为本地模拟：以下阈值为平台当前展示行为的近似常量，集中在此便于调整
-const X_TEXT_LIMIT = 280; // 与 apps/api/src/generation/social-post.ts 的字数限制对齐
+const X_TEXT_LIMIT = 280; // 时间线折叠为 "Show more" 的阈值，非发布上限（发布上限由账号 textLimit 决定）
 const INSTAGRAM_CAPTION_LIMIT = 125;
 const FACEBOOK_CAPTION_LIMIT = 250;
 

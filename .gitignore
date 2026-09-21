@@ -33,3 +33,6 @@ AGENTS.md
 # 构建产物增量缓存
 *.tsbuildinfo
 .cursor/
+
+# Claude Code 本地工具链配置：仅本机生效，不入库
+.claude/

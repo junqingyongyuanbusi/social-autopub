@@ -150,6 +150,7 @@ model Account {
   owner               User?         @relation("AccountOwner", fields: [ownerId], references: [id])
   note                String?
   status              String        @default("active") // active | disconnected
+  textLimit           Int? // 账号可发文本上限（X 订阅账号可发长文）；为空则用平台默认值
   lastSyncedAt        DateTime?
   rules               RoutingRule[]
   userLinks           UserAccount[]

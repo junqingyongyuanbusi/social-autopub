@@ -17,6 +17,7 @@ test("generation edit CAS rejects when approval wins the race", async () => {
       },
     } as any,
     { targetIntegrationIds: async () => [] } as any,
+    { textLimitFor: async () => null } as any,
     { assertPermission: async () => undefined } as any,
     {} as any,
     {} as any,
@@ -57,6 +58,7 @@ test("regenerate restores FAILED when queue enqueue fails", async () => {
   const controller = new ContentController(
     prisma as any,
     {} as any,
+    { textLimitFor: async () => null } as any,
     { assertPermission: async () => undefined } as any,
     { add: async () => { throw new Error("redis unavailable"); } } as any,
     {} as any,
@@ -92,6 +94,7 @@ test("bulk requeue reports enqueue failures and restores FAILED", async () => {
         }),
     } as any,
     {} as any,
+    { textLimitFor: async () => null } as any,
     {} as any,
     { add: async () => { throw new Error("redis unavailable"); } } as any,
     {} as any,
@@ -132,6 +135,7 @@ test("approve rejects an incomplete publish target snapshot", async () => {
       assertIntegrationPermission: async () => undefined,
       assertPermission: async () => undefined,
     } as any,
+    { textLimitFor: async () => null } as any,
     {} as any,
     {} as any,
   );

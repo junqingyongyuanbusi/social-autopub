@@ -259,21 +259,27 @@ export class GenerationService {
     promptConfig: PromptConfig,
   ): Promise<{ content: string; problems: string[] }> {
     const outputLanguage = outputLanguageFor(item.language);
+    // 目标账号的文本上限（订阅账号可发长文）；未配置则回落平台默认值
+    const textLimit = await this.routing.textLimitFor(
+      item.language,
+      item.contentType,
+      platform,
+    );
     let content = this.parse(
       await this.llm.complete(
         buildGenerationPrompt(promptConfig, {
           ...item,
           platform,
           language: outputLanguage,
-          bodyBudget: bodyBudget(platform, item)
+          bodyBudget: bodyBudget(platform, item, textLimit)
         }),
         promptConfig.systemPrompt,
       ),
     );
 
     for (let i = 0; i < GenerationService.MAX_REVISIONS; i++) {
-      const composed = composeSocialPost(platform, content, item);
-      const problems = validateForPlatform(platform, composed.content, content)
+      const composed = composeSocialPost(platform, content, item, textLimit);
+      const problems = validateForPlatform(platform, composed.content, content, textLimit)
       if (!problems.length) return { content, problems: [] }
       this.logger.warn(
         `${platform} draft invalid (round ${i + 1}): ${problems.join("; ")}`,
@@ -291,10 +297,10 @@ export class GenerationService {
       );
     }
     // 重写轮次用尽仍不达标：保留裸正文进入人工审核，系统后缀在预览/发布时组合。
-    const finalContent = composeSocialPost(platform, content, item).content;
+    const finalContent = composeSocialPost(platform, content, item, textLimit).content;
     return {
       content,
-      problems: validateForPlatform(platform, finalContent, content),
+      problems: validateForPlatform(platform, finalContent, content, textLimit),
     }
   }
 

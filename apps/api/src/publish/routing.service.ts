@@ -27,4 +27,15 @@ export class RoutingService {
     const active = (exact.length ? exact : rules).filter((r) => r.account.status === 'active');
     return active.map((r) => r.account);
   }
+
+  // 生成阶段的文本上限：取首选账号的 textLimit（与发布阶段的选号顺序一致）。
+  // 未配置路由或账号未设上限时返回 null，由 platformLimit 回落平台默认值。
+  async textLimitFor(
+    language: string,
+    contentType: string,
+    platform: string,
+  ): Promise<number | null> {
+    const accounts = await this.resolveAccounts(language, contentType, platform);
+    return accounts[0]?.textLimit ?? null;
+  }
 }

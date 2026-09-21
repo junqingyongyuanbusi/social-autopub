@@ -7,6 +7,7 @@ import { AccessService } from '../common/access.service';
 import { CurrentUser, RequestUser } from '../common/current-user';
 import { PrismaService } from '../prisma/prisma.service';
 import { PublishService } from '../publish/publish.service';
+import { RoutingService } from '../publish/routing.service';
 import { QUEUE_GENERATION, QUEUE_PUBLISH, GenerationJobData, PublishJobData } from '../queues';
 import { composeSocialPost } from '../generation/social-post'
 
@@ -17,6 +18,7 @@ export class ContentController {
   constructor(
     private readonly prisma: PrismaService,
     private readonly publish: PublishService,
+    private readonly routing: RoutingService,
     private readonly access: AccessService,
     @InjectQueue(QUEUE_GENERATION) private readonly generationQueue: Queue<GenerationJobData>,
     @InjectQueue(QUEUE_PUBLISH) private readonly publishQueue: Queue<PublishJobData>,
@@ -132,11 +134,29 @@ export class ContentController {
     });
     if (!item) throw new NotFoundException();
     if (!(await this.isVisibleTo(user, item))) throw new NotFoundException();
+    // 各平台按路由首选账号取文本上限，保证审核页显示的限额与发布时一致
+    const textLimits = new Map(
+      await Promise.all(
+        [...new Set(item.generations.map((g) => g.platform))].map(
+          async (platform) =>
+            [
+              platform,
+              await this.routing.textLimitFor(item.language, item.contentType, platform),
+            ] as const,
+        ),
+      ),
+    );
     const composedItem = {
       ...item,
       generations: item.generations.map((generation) => {
+        const textLimit = textLimits.get(generation.platform) ?? null;
         try {
-          const composed = composeSocialPost(generation.platform, generation.content, item);
+          const composed = composeSocialPost(
+            generation.platform,
+            generation.content,
+            item,
+            textLimit,
+          );
           return {
             ...generation,
             systemSuffix: composed.suffix,
